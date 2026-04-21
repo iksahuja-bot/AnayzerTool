@@ -1,0 +1,73 @@
+# ============================================================================
+#  Upgrade Compatibility Analyzer — Exclusion List
+# ============================================================================
+#
+# Add rule IDs or names here (one per line) to suppress them from the report.
+# Anything after # on a line is treated as a comment.
+#
+# SUPPORTED FORMATS
+# ─────────────────
+# 1. Our Java 21 rule ID         e.g.  JR-001
+# 2. IBM Transformation Advisor  e.g.  RemovedJaxBModuleNotProvided
+#    (TA) equivalent name               (maps automatically to the matching JR-xxx)
+# 3. Spring library name         e.g.  Spring 5.3.39   (suppresses all Spring findings)
+#    or class prefix             e.g.  org.springframework.remoting.jaxrpc
+#
+# A rule excluded here is removed from ALL sheets (Summary, Findings,
+# Checklist, and Rule Catalog).  To re-enable a rule, prefix its line with #.
+#
+# ============================================================================
+#  IBM Transformation Advisor (TA) — confirmed rule exclusions
+#  All 16 IBM TA rules are ACTIVE (uncommented) below.
+#  Comment out a rule only if you need to re-enable scanning for it.
+# ============================================================================
+
+# ── Informational / tool-based IBM TA rules (no scannable code pattern) ─────
+RunJDeps                              # IBM TA: run jdeps — tool advisory, not a code issue
+Java11GeneralInfoAndPotentialIssues   # IBM TA: general Java 11 migration info
+Java17GeneralInfoAndPotentialIssues   # IBM TA: general Java 17 migration info
+Java21GeneralInfoAndPotentialIssues   # IBM TA: general Java 21 migration info
+
+# ── JAXB (Java 11, JEP 320) → JR-001 ────────────────────────────────────────
+RemovedJaxBModuleNotProvided
+
+# ── JAX-WS (Java 11, JEP 320) → JR-002 ──────────────────────────────────────
+RemovedJavaXMLWSModuleNotProvided
+
+# ── javax.transaction / JTA (Java 11, JEP 320) → JR-020 ─────────────────────
+RemovedTransactionModule
+
+# ── CORBA / IIOP (Java 11, JEP 320) → JR-006, JR-007 ────────────────────────
+DetectCorbaJava
+
+# ── URLClassLoader (Java 9+) → JM-004 ────────────────────────────────────────
+URLClassLoaderArrayContainsNull
+
+# ── Default charset (JEP 400, Java 17) → JB-001…JB-006 ──────────────────────
+CLDRLocaleDataByDefault
+DefaultCharsetPrintWriter
+
+# ── Primitive wrapper constructors (Java 16) → JR-014…JR-018 ────────────────
+DeprecatedPrimitiveClassConstructors
+
+# ── JAX-RS / JAX-WS raw-type API usage → JB-019 ─────────────────────────────
+DetectJaxApiRawTypeMethods
+
+# ── Java 17: Unicode regex boundary behaviour → JB-016 ───────────────────────
+jre17RegexBehaviorChange
+
+# ── Java 17: Weak named EC curves → JB-017 ───────────────────────────────────
+DetectWeakNamedCurves
+
+# ── Java 17: EJB remote serialisation → JB-018 ───────────────────────────────
+jre17EJBRemotePotentialIssues
+
+# ============================================================================
+#  ADD YOUR OWN EXCLUSIONS BELOW
+#  ─────────────────────────────
+#  Examples:
+#    JD-001                         suppress Thread.stop deprecation finding
+#    JI-001                         suppress sun.misc.Unsafe finding
+#    Guava 31.1-jre                 suppress ALL Guava findings
+#    org.springframework.web.struts suppress a Spring class prefix
+# ============================================================================

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  EffortAnalyzer – Local Maven Settings
+  ======================================
+  Use this file when building outside the corporate network (no access to Nexus).
+
+  Usage:
+    mvn clean package -s settings-local.xml
+
+  The <mirrors> block below overrides any corporate mirror defined in the global
+  Maven settings (~/.m2/settings.xml), forcing all downloads to go directly to
+  Maven Central instead of the corporate Nexus proxy.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <!-- Same local cache as the corporate settings -->
+    <localRepository>c:/m2p</localRepository>
+
+    <!--
+      Override any global mirror (e.g. corporate Nexus) by explicitly mapping
+      the built-in "central" repository ID to the real Maven Central URL.
+      Maven processes mirrors from this file before the global settings.xml,
+      so this takes precedence.
+    -->
+    <mirrors>
+        <mirror>
+            <id>central-override</id>
+            <name>Maven Central (direct)</name>
+            <url>https://repo1.maven.org/maven2</url>
+            <mirrorOf>*</mirrorOf>
+        </mirror>
+    </mirrors>
+
+    <profiles>
+        <profile>
+            <id>effort-analyzer-build</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+
+            <repositories>
+                <repository>
+                    <id>central</id>
+                    <name>Maven Central</name>
+                    <url>https://repo1.maven.org/maven2</url>
+                    <releases>
+                        <enabled>true</enabled>
+                        <updatePolicy>never</updatePolicy>
+                    </releases>
+                    <snapshots>
+                        <enabled>false</enabled>
+                    </snapshots>
+                </repository>
+            </repositories>
+
+            <pluginRepositories>
+                <pluginRepository>
+                    <id>central-plugins</id>
+                    <name>Maven Central Plugins</name>
+                    <url>https://repo1.maven.org/maven2</url>
+                    <releases>
+                        <enabled>true</enabled>
+                        <updatePolicy>never</updatePolicy>
+                    </releases>
+                    <snapshots>
+                        <enabled>false</enabled>
+                    </snapshots>
+                </pluginRepository>
+            </pluginRepositories>
+        </profile>
+    </profiles>
+
+</settings>

@@ -1,0 +1,44 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Upgrade Compatibility Analyzer – Custom Rules
+#
+#  Add your own rules below. Built-in rules already cover:
+#
+#   ┌──────────────────────────────────────────────────────────────────────────┐
+#   │ Library          │ Coverage                                               │
+#   ├──────────────────────────────────────────────────────────────────────────┤
+#   │ Spring Framework │ 3.x→4.x removals, 4.x→5.x removals, 5.x deprecations │
+#   │ Guava            │ CharMatcher, Throwables, Hashing, TreeTraverser,      │
+#   │                  │ MoreExecutors, Files (io), Futures, Collections       │
+#   │ Guice            │ 3→4 removals, 5.x deprecations & CGLib removal       │
+#   │ CGLib→ByteBuddy  │ net.sf.cglib.*, cglib.*, org.springframework.cglib.* │
+#   └──────────────────────────────────────────────────────────────────────────┘
+#
+#  Format (6 fields, pipe-separated):
+#
+#    library|className|methodName|severity|replacement|description
+#
+#  Fields:
+#    library     – Descriptive label shown in the Excel report (any string)
+#    className   – Fully-qualified class name  OR  package prefix
+#                  (package prefix = last segment starts with lowercase)
+#                  E.g. "com.example.OldClass"  or  "com.example.oldpackage"
+#    methodName  – Method name, or empty if the whole class is deprecated
+#    severity    – CRITICAL | WARNING | INFO
+#    replacement – What to use instead (shown in report)
+#    description – Short note on why this is deprecated/removed
+#
+#  Legacy 5-field format (no library column) is also supported:
+#    className|methodName|severity|replacement|description
+#
+# ───────────────────────────────────────────────────────────────────────────────
+# Add your custom rules below:
+# ───────────────────────────────────────────────────────────────────────────────
+
+# Example – custom in-house library deprecation:
+# My Library 2.0|com.acme.old.LegacyClient||CRITICAL|com.acme.new.RestClient|LegacyClient removed in version 2.0
+
+# Example – deprecated method in a third-party library:
+# Apache Commons|org.apache.commons.lang.StringUtils|defaultString|WARNING|StringUtils.defaultString(str) -> use StringUtils.defaultIfEmpty(str, "")|Null-safe version preferred
+
+# Example – entire package renamed:
+# My Corp Library|com.corp.util.oldpackage||CRITICAL|com.corp.util.newpackage|Package renamed in 3.0 release

@@ -1,0 +1,31 @@
+# Java 21 Upgrade Compatibility — Custom Rules
+# ────────────────────────────────────────────────────────────────────────────
+# Extend the built-in IBM WAMT-inspired Java 21 rule set with project-specific
+# or organisation-specific patterns.
+#
+# FORMAT (pipe-delimited, one rule per line):
+#   RULE_ID|CATEGORY|apiPattern|SEVERITY|javaVersion|description|remediation
+#
+# RULE_ID      - Unique identifier (e.g. CUSTOM-001). Shown in the report.
+# CATEGORY     - One of: JAVA_REMOVED | JAVA_INTERNAL | JAVA_DEPRECATED |
+#                         JAVA_BEHAVIOR | JVM_ARGS | JDK_MODULES |
+#                         CUSTOM (any free-text label is accepted)
+# apiPattern   - The exact string to search for in source and bytecode.
+#                Use dot notation (e.g. com.example.LegacyUtil).
+# SEVERITY     - CRITICAL | HIGH | MEDIUM | INFO
+# javaVersion  - First Java version where this is a problem (e.g. 9, 11, 17, 21).
+#                Leave empty if not version-specific.
+# description  - What the issue is (plain text, no pipes).
+# remediation  - What to do (plain text, no pipes). Be specific and actionable.
+#
+# Lines starting with # are comments and are ignored.
+# Empty lines are ignored.
+# ────────────────────────────────────────────────────────────────────────────
+#
+# EXAMPLES — uncomment and edit:
+#
+# CUSTOM-001|JAVA_INTERNAL|com.mycompany.util.SunReflectHelper|HIGH|11|Internal helper that wraps sun.reflect API|Replace with MethodHandles.privateLookupIn() or standard java.lang.reflect
+# CUSTOM-002|JAVA_REMOVED|com.mycompany.xml.JaxbLegacyHelper|CRITICAL|11|Internal JAXB wrapper that relies on bundled JDK JAXB|Replace with explicit jakarta.xml.bind dependency + update imports
+# CUSTOM-003|JVM_ARGS|MaxPermSize|CRITICAL|8|Script sets MaxPermSize which is removed in Java 8+|Replace with MaxMetaspaceSize in all JVM startup scripts
+# CUSTOM-004|JAVA_DEPRECATED|com.mycompany.LegacyThread|HIGH|21|Uses Thread.stop internally|Migrate to interrupt-based cancellation pattern
+# ────────────────────────────────────────────────────────────────────────────
