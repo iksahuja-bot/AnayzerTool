@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Properties>
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n</Property>
+        <Property name="LOG_FILE">logs/effortanalyzer.log</Property>
+    </Properties>
+
+    <Appenders>
+        <!-- Console appender with colors -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} %highlight{%-5level}{FATAL=red blink, ERROR=red, WARN=yellow, INFO=green, DEBUG=cyan, TRACE=white} %style{%logger{36}}{cyan} - %msg%n"/>
+        </Console>
+
+        <!-- Rolling file appender -->
+        <RollingFile name="File" fileName="${LOG_FILE}" 
+                     filePattern="logs/effortanalyzer-%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <SizeBasedTriggeringPolicy size="10 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
+    </Appenders>
+
+    <Loggers>
+        <!-- Application loggers -->
+        <Logger name="effortanalyzer" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="File"/>
+        </Logger>
+
+        <!-- Apache POI (reduce noise) -->
+        <Logger name="org.apache.poi" level="WARN"/>
+        
+        <!-- Jackson (reduce noise) -->
+        <Logger name="com.fasterxml.jackson" level="WARN"/>
+
+        <!-- Root logger -->
+        <Root level="INFO">
+            <AppenderRef ref="Console"/>
+        </Root>
+    </Loggers>
+</Configuration>

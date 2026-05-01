@@ -1,0 +1,12 @@
+# Spring 5.3.x Deprecation Rules
+# Format: className|methodName|severity|replacement|description
+# Severity: CRITICAL (will break), WARNING (deprecated), INFO (best practice)
+# Leave methodName empty to check entire class
+# Lines starting with # are comments
+
+# Add your custom rules here
+# Example:
+# com.mycompany.CustomSpringComponent|oldMethod|WARNING|Use newMethod() instead|Custom deprecation
+
+# You can also use wildcards for package scanning:
+# org.springframework.web.servlet.mvc.*||WARNING|Review for deprecated classes|Package contains deprecated classes

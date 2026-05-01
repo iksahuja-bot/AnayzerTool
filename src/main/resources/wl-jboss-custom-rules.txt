@@ -1,0 +1,57 @@
+# WebLogic → JBoss Custom Migration Rules
+# ════════════════════════════════════════════════════════════════════
+# Add organisation-specific or project-specific patterns here.
+# Built-in rules in WlJBossRules.java cover standard WebLogic / Java EE
+# patterns; use this file for anything bespoke to your environment.
+#
+# FORMAT (pipe-delimited, one rule per line):
+#   CATEGORY|apiPattern|SEVERITY|description|remediation
+#
+# CATEGORY  – free text grouping label shown in the report
+#             (e.g. CUSTOM_API, INTERNAL_LIB, PROJECT_SPECIFIC)
+# apiPattern – the exact string to search for in source and bytecode
+#              (dot-separated class / package name, or any text token)
+# SEVERITY  – CRITICAL | HIGH | MEDIUM | INFO
+# description – what the issue is
+# remediation – what to do about it
+#
+# Lines starting with # are comments and are ignored.
+# ════════════════════════════════════════════════════════════════════
+#
+# EXAMPLES (uncomment and edit):
+#
+# CUSTOM_API|com.mycompany.wl.util.ServerHelper|HIGH|Internal WebLogic helper class|Replace with com.mycompany.common.ServerUtils
+# CUSTOM_API|com.mycompany.datasource.WLDataSourceFactory|CRITICAL|Custom WebLogic datasource factory|Migrate to standard JNDI datasource lookup
+# JNDI_NAMING|jdbc/MyCompanyDB|HIGH|Old WebLogic JNDI datasource name|Rename to java:jboss/datasources/MyCompanyDB in standalone.xml
+
+# ════════════════════════════════════════════════════════════════════
+# Kernel project — NetCracker platform specific patterns
+# Discovered via source analysis of Kernel_10.0.40.1_WL14_TechDebt
+# ════════════════════════════════════════════════════════════════════
+
+# HomeInterfaceHelper is the project's JNDI wrapper for EJB 2.x home interface lookups.
+# Every call to lookupHome() references an EJB 2.x Home interface that must be eliminated.
+# Replace with: @EJB injection of @Local/@Remote business interface, or CDI @Inject.
+EJB_LEGACY|HomeInterfaceHelper|CRITICAL|Project-specific EJB 2.x home interface lookup wrapper — wraps JNDI lookups for 16+ EJBHome interfaces|Replace all HomeInterfaceHelper.getInstance().lookupHome() call sites with @EJB injection or CDI @Inject. Remove all *Home interface files and replace with @Local/@Remote annotated business interfaces.
+
+# RemoteHelper.narrow() is the project's wrapper around javax.rmi.PortableRemoteObject.narrow().
+# It is used extensively (20+ call sites) to cast EJB 2.x remote stubs.
+# In EJB 3.x, remote references are typed correctly — no narrowing is needed.
+EJB_LEGACY|RemoteHelper.narrow|CRITICAL|Project wrapper for EJB 2.x PortableRemoteObject.narrow() — used at 20+ call sites|Remove all RemoteHelper.narrow() calls. In EJB 3.x @Remote interfaces the container returns the correctly typed proxy; a plain Java cast is sufficient. Prefer @EJB injection over JNDI lookup + narrow.
+
+# POJOEntityContext is the project's adapter that simulates EJB 2.x EntityContext in unit tests.
+# Its presence indicates the tested class is still using the EJB 2.x entity bean pattern.
+EJB_LEGACY|POJOEntityContext|MEDIUM|Project-specific EntityContext adapter for testing EJB 2.x entity beans|Once entity beans are migrated to JPA @Entity the POJOEntityContext adapter and its usages can be deleted. Replace with standard JPA test patterns (Arquillian, Spring Test, or plain EntityManager).
+
+# oracle.jdbc.internal.ClientDataSupport is an Oracle internal API used for WebLogic-specific
+# crypto key injection into JDBC connections. This will not compile on WildFly's class path.
+# Files: JDBCPreInvokeOracleCryptoProvider, NCDBCryptoHelper
+WEBLOGIC_API|oracle.jdbc.internal.ClientDataSupport|HIGH|Oracle internal JDBC API used for WebLogic crypto key injection — not on WildFly class path|Implement the crypto key injection using a standard JDBC Connection wrapper or a WildFly datasource connection listener (org.jboss.jca.adapters.jdbc.spi.listener.ConnectionListener). Remove the dependency on oracle.jdbc.internal.
+
+# sun.reflect.ReflectionFactory is an internal JDK API removed in Java 17+.
+# Detected in Kernel source via its test comment referencing sun.misc.Service.
+JAVA8_COMPAT|sun.reflect.ReflectionFactory|HIGH|sun.reflect.ReflectionFactory is a private JDK API — inaccessible in Java 11+ and removed in Java 17|Replace with standard java.lang.reflect API or MethodHandles.lookup(). For object construction without calling constructors consider objenesis library as a portable alternative.
+
+# weblogic.security.Security.getCurrentSubject() is called in PrincipalHelper.
+# WildFly equivalent: org.wildfly.security.auth.server.SecurityDomain or standard JAAS Subject.
+WEBLOGIC_API|weblogic.security.Security|CRITICAL|Direct WebLogic security API call — not available on WildFly|Replace weblogic.security.Security.getCurrentSubject() with WildFly Elytron: SecurityDomain.getCurrent().getCurrentSecurityIdentity() or standard javax.security.auth.Subject via JAAS LoginContext.
