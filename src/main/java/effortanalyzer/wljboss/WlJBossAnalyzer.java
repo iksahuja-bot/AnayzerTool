@@ -346,7 +346,7 @@ public class WlJBossAnalyzer {
                 // Also check plain text form (String literals, etc.)
                 String dotPattern   = rule.apiPattern();
 
-                if (content.contains(slashPattern) || content.contains(dotPattern)) {
+                if (containsPatternBounded(content, slashPattern) || containsPatternBounded(content, dotPattern)) {
                     Finding f = finding(jarName, rule);
                     // Convert entry path to readable class name for the example context
                     String className = entry.getName()
@@ -401,12 +401,40 @@ public class WlJBossAnalyzer {
         for (WlJBossRules.Rule rule : rules.getRules()) {
             if (rule.scanMode() == WlJBossRules.ScanMode.BYTECODE) continue;
 
-            if (line.contains(rule.apiPattern())) {
+            if (containsPatternBounded(line, rule.apiPattern())) {
                 Finding f = finding(jarName, rule);
                 String ctx = isFileName ? "Descriptor file: " + line : line.strip();
                 f.record(filePath, lineNo, ctx);
                 bumpStats(stats, rule.severity());
             }
+        }
+    }
+
+    /**
+     * Returns true when {@code text} contains {@code pattern} at a position
+     * where the character immediately following the match is NOT a letter,
+     * digit, or underscore.
+     *
+     * <p>This prevents prefix false-positives such as the rule pattern
+     * {@code "weblogic.transaction"} matching inside a custom package name
+     * {@code "com.example.impl.weblogic.transactions"} (note the trailing
+     * {@code s}).  In source text the delimiter after a true match is always
+     * a non-alphanumeric character: {@code .}, {@code ;}, {@code *}, a space,
+     * or end-of-string.
+     */
+    static boolean containsPatternBounded(String text, String pattern) {
+        int start = 0;
+        int patLen = pattern.length();
+        while (true) {
+            int idx = text.indexOf(pattern, start);
+            if (idx < 0) return false;
+            int after = idx + patLen;
+            if (after >= text.length()
+                    || (!Character.isLetterOrDigit(text.charAt(after))
+                        && text.charAt(after) != '_')) {
+                return true;
+            }
+            start = idx + 1;
         }
     }
 

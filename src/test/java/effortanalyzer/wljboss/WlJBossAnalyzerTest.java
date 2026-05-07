@@ -147,6 +147,79 @@ class WlJBossAnalyzerTest {
         assertTrue(analyzer.getJarStats().containsKey("sample.jar"));
     }
 
+    // ── containsPatternBounded ────────────────────────────────────────────────
+
+    @Test
+    void boundedMatchReturnsTrueWhenPatternAtEndOfString() {
+        assertTrue(WlJBossAnalyzer.containsPatternBounded("import weblogic.transaction", "weblogic.transaction"));
+    }
+
+    @Test
+    void boundedMatchReturnsTrueWhenPatternFollowedByDot() {
+        assertTrue(WlJBossAnalyzer.containsPatternBounded("import weblogic.transaction.UserTransaction;", "weblogic.transaction"));
+    }
+
+    @Test
+    void boundedMatchReturnsTrueWhenPatternFollowedBySemicolon() {
+        assertTrue(WlJBossAnalyzer.containsPatternBounded("weblogic.transaction;", "weblogic.transaction"));
+    }
+
+    @Test
+    void boundedMatchReturnsTrueWhenPatternFollowedBySlash() {
+        // Bytecode form: weblogic/transaction/UserTransaction
+        assertTrue(WlJBossAnalyzer.containsPatternBounded("com/example/weblogic/transaction/Foo", "weblogic/transaction"));
+    }
+
+    @Test
+    void boundedMatchReturnsFalseForPrefixFalsePositive() {
+        // "weblogic.transaction" must NOT match "weblogic.transactions" (custom package name)
+        assertFalse(WlJBossAnalyzer.containsPatternBounded(
+                "package com.netcracker.configuration.impl.weblogic.transactions;",
+                "weblogic.transaction"));
+    }
+
+    @Test
+    void boundedMatchReturnsFalseForBytecodePrefixFalsePositive() {
+        // Bytecode path "com/netcracker/.../weblogic/transactions/WLTxListenersHolderImpl"
+        // must NOT match rule pattern "weblogic/transaction"
+        assertFalse(WlJBossAnalyzer.containsPatternBounded(
+                "com/netcracker/configuration/impl/weblogic/transactions/WLTxListenersHolderImpl",
+                "weblogic/transaction"));
+    }
+
+    @Test
+    void noFalsePositiveForCustomPackageContainingWeblogicTransactions(@TempDir Path tmpDir)
+            throws IOException {
+        // Reproduces the WLTxListenersHolderImpl false positive:
+        // a .java file whose package is com.netcracker.configuration.impl.weblogic.transactions
+        // has NO actual weblogic.transaction API usage.
+        Path jarPath = tmpDir.resolve("cogeco-cim.jar");
+        try (JarOutputStream jos = new JarOutputStream(Files.newOutputStream(jarPath))) {
+            JarEntry entry = new JarEntry("com/netcracker/configuration/impl/weblogic/transactions/WLTxListenersHolderImpl.java");
+            jos.putNextEntry(entry);
+            String source =
+                    "package com.netcracker.configuration.impl.weblogic.transactions;\n"
+                    + "import com.netcracker.configuration.Platform;\n"
+                    + "import com.netcracker.configuration.impl.weblogic.WLConfigurationManager;\n"
+                    + "import com.netcracker.configuration.transaction.TransactionListener;\n"
+                    + "public class WLTxListenersHolderImpl {\n"
+                    + "    public void registerListener(TransactionListener listener) {}\n"
+                    + "}\n";
+            jos.write(source.getBytes());
+            jos.closeEntry();
+        }
+
+        String outputPath = tmpDir.resolve("out.xlsx").toString();
+        WlJBossAnalyzer analyzer = new WlJBossAnalyzer();
+        analyzer.run(jarPath.toString(), outputPath);
+
+        boolean hasTransactionFinding = analyzer.getFindings().values().stream()
+                .anyMatch(f -> "weblogic.transaction".equals(f.rule.apiPattern()));
+        assertFalse(hasTransactionFinding,
+                "weblogic.transaction rule must not fire for a class in the "
+                + "com.netcracker.configuration.impl.weblogic.transactions package");
+    }
+
     @Test
     void scanDirectoryCollectsAllJars(@TempDir Path tmpDir) throws IOException {
         // Create two JARs in the temp directory
