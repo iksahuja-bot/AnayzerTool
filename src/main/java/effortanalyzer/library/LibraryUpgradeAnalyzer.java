@@ -124,13 +124,33 @@ public class LibraryUpgradeAnalyzer {
     }
 
     private void analyzeSourceFile(JarFile jar, JarEntry entry, Path jarPath) {
-        try (InputStream is = jar.getInputStream(entry);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            String line;
+        try (InputStream is = jar.getInputStream(entry)) {
+            List<String> lines = new java.io.BufferedReader(
+                    new InputStreamReader(is, StandardCharsets.UTF_8))
+                    .lines()
+                    .collect(Collectors.toList());
+
+            // First pass: build simple-name → FQN map from explicit (non-wildcard, non-static) imports.
+            // Used to reject simple-name matches when the name is already bound to a different class.
+            Map<String, String> importedSimpleNames = new java.util.HashMap<>();
+            for (String l : lines) {
+                String t = l.trim();
+                if (t.startsWith("import ")
+                        && !t.startsWith("import static ")
+                        && !t.contains("*")) {
+                    String fqn = t.substring("import ".length()).replace(";", "").trim();
+                    int dot = fqn.lastIndexOf('.');
+                    if (dot >= 0) {
+                        importedSimpleNames.put(fqn.substring(dot + 1), fqn);
+                    }
+                }
+            }
+
+            // Second pass: line-by-line rule check with import context.
             int lineNumber = 0;
-            while ((line = reader.readLine()) != null) {
+            for (String line : lines) {
                 lineNumber++;
-                checkLineForDeprecations(line, lineNumber, entry.getName(), jarPath);
+                checkLineForDeprecations(line, lineNumber, entry.getName(), jarPath, importedSimpleNames);
             }
         } catch (IOException e) {
             logger.debug("Failed to read source file: {}", entry.getName(), e);
@@ -177,8 +197,13 @@ public class LibraryUpgradeAnalyzer {
      * Package-prefix rules are matched against import statements only.
      * Class-level rules also check for simple-name usage in code.
      * Method-level rules look for call-site patterns.
+     *
+     * @param importedSimpleNames map of simple class name → FQN for every explicit import in
+     *                            the file being scanned; used to suppress simple-name matches
+     *                            when that name is already bound to a different (non-deprecated) class.
      */
-    private void checkLineForDeprecations(String line, int lineNumber, String fileName, Path jarPath) {
+    private void checkLineForDeprecations(String line, int lineNumber, String fileName, Path jarPath,
+                                          Map<String, String> importedSimpleNames) {
         String trimmed = line.trim();
         boolean isImport = trimmed.startsWith("import ");
 
@@ -193,20 +218,60 @@ public class LibraryUpgradeAnalyzer {
                 continue;
             }
 
-            if (isImport && trimmed.contains(cls)) {
-                addFinding(jarPath, fileName, lineNumber, ca.api(), "Import: " + trimmed);
+            if (isImport) {
+                // Import lines: only a full-class-name match is valid.
+                // Simple-name checks are never applied to import lines.
+                if (trimmed.contains(cls)) {
+                    addFinding(jarPath, fileName, lineNumber, ca.api(), "Import: " + trimmed);
+                }
                 continue;
             }
 
-            if (ca.simpleNamePattern() != null && ca.simpleNamePattern().matcher(trimmed).find()) {
-                addFinding(jarPath, fileName, lineNumber, ca.api(), "Usage: " + trimmed);
-                continue;
+            if (ca.simpleNamePattern() != null) {
+                // If the file imports a *different* class with the same simple name, any
+                // usage of that name in code refers to the other class, not the deprecated one.
+                // E.g. "import com.google.gwt.core.client.Callback" binds the name "Callback"
+                // so it cannot also mean "net.sf.cglib.proxy.Callback".
+                String simpleName = cls.substring(cls.lastIndexOf('.') + 1);
+                String mappedFqn  = importedSimpleNames.get(simpleName);
+                if (mappedFqn != null && !mappedFqn.equals(cls)) {
+                    continue;
+                }
+
+                java.util.regex.Matcher m = ca.simpleNamePattern().matcher(trimmed);
+                boolean outsideString = false;
+                while (m.find()) {
+                    if (!isInsideStringLiteral(trimmed, m.start())) {
+                        outsideString = true;
+                        break;
+                    }
+                }
+                if (outsideString) {
+                    addFinding(jarPath, fileName, lineNumber, ca.api(), "Usage: " + trimmed);
+                    continue;
+                }
             }
 
             if (ca.methodPattern() != null && ca.methodPattern().matcher(trimmed).find()) {
                 addFinding(jarPath, fileName, lineNumber, ca.api(), "Method call: " + trimmed);
             }
         }
+    }
+
+    /**
+     * Returns true when the character at {@code position} in {@code line} is inside a
+     * Java string literal (an odd number of unescaped double-quote characters precedes it).
+     * Prevents false positives when a short class simple-name (e.g. {@code Form}) appears
+     * as a natural word inside a string constant such as {@code "Form Factor"}.
+     */
+    private static boolean isInsideStringLiteral(String line, int position) {
+        int quoteCount = 0;
+        for (int i = 0; i < position; i++) {
+            if (line.charAt(i) == '"' && (i == 0 || line.charAt(i - 1) != '\\')) {
+                quoteCount++;
+            }
+        }
+        return (quoteCount % 2) != 0;
     }
 
     /**
