@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import effortanalyzer.EffortConfig;
 import effortanalyzer.util.ExcelUtils;
 
 import java.io.*;
@@ -66,6 +67,7 @@ public class WlJBossReportWriter {
             writeInventorySheet        (wb, styles, jarStats);
             writeChecklistSheet        (wb, styles, findings);
             writeMigrationPlaybookSheet(wb, styles, targetProfile);
+            writeEffortSheet           (wb, styles, findings);
 
             try (FileOutputStream out = new FileOutputStream(outPath.toFile())) {
                 wb.write(out);
@@ -915,6 +917,215 @@ public class WlJBossReportWriter {
             codeCell.setCellStyle(s.playbookCode);
         }
         return r;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Sheet 6 – Effort Analysis
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Effort Analysis sheet — lists every developer-code issue per component/JAR
+     * with an estimated remediation effort in hours, a subtotal per JAR, and a
+     * grand total across all components.
+     *
+     * Effort model:  effort = min(cap, base + max(1, files) × perFile)
+     *   CRITICAL : 2 h base + 0.50 h/file, cap 20 h
+     *   HIGH     : 1 h base + 0.25 h/file, cap 12 h
+     *   MEDIUM   : 0.5 h base + 0.10 h/file, cap  8 h
+     *   INFO     : 0.25 h flat
+     *
+     * WL appc-generated stub findings are excluded (not developer code).
+     */
+    private static void writeEffortSheet(Workbook wb, StyleSet s,
+                                         List<WlJBossAnalyzer.Finding> findings) {
+
+        Sheet sheet = wb.createSheet("Effort Analysis");
+        sheet.setColumnWidth(0, 13_000);  // Component / JAR
+        sheet.setColumnWidth(1, 15_000);  // Issue / API Pattern
+        sheet.setColumnWidth(2,  9_000);  // Category
+        sheet.setColumnWidth(3,  5_500);  // Severity
+        sheet.setColumnWidth(4,  5_500);  // Files Affected
+        sheet.setColumnWidth(5,  5_500);  // Effort (h)
+
+        int r = 0;
+
+        // ── Title ──────────────────────────────────────────────────────────────
+        Row titleRow = sheet.createRow(r++);
+        Cell titleCell = titleRow.createCell(0);
+        titleCell.setCellValue("Technical Debt Effort Analysis — Issues per Component / JAR");
+        titleCell.setCellStyle(s.title);
+        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 5));
+
+        // ── Effort model legend ────────────────────────────────────────────────
+        Row infoRow = sheet.createRow(r++);
+        Cell infoCell = infoRow.createCell(0);
+        infoCell.setCellValue(
+                "Effort = base + (files × rate), capped per issue."
+                + "  CRITICAL: 2h + 0.5h/file (cap 20h)"
+                + "  |  HIGH: 1h + 0.25h/file (cap 12h)"
+                + "  |  MEDIUM: 0.5h + 0.1h/file (cap 8h)"
+                + "  |  INFO: 0.25h flat"
+                + "  |  Override per-severity or per-API via effort-overrides.properties next to the JAR."
+                + "  |  WL appc-generated stub findings excluded.");
+        infoCell.setCellStyle(s.legend);
+        sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, 5));
+        infoRow.setHeightInPoints(30);
+        r++; // blank
+
+        // ── Column headers ─────────────────────────────────────────────────────
+        Row hRow = sheet.createRow(r++);
+        String[] headers = {
+                "Component / JAR", "Issue / API Pattern", "Category",
+                "Severity", "Files Affected", "Effort (h)"
+        };
+        for (int i = 0; i < headers.length; i++) {
+            Cell c = hRow.createCell(i);
+            c.setCellValue(headers[i]);
+            c.setCellStyle(s.header);
+        }
+        sheet.createFreezePane(0, r);
+
+        // ── Local styles for subtotal and grand-total rows ─────────────────────
+        CellStyle subtotalStyle = wb.createCellStyle();
+        subtotalStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+        subtotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        Font stFont = wb.createFont();
+        stFont.setBold(true);
+        subtotalStyle.setFont(stFont);
+
+        CellStyle grandTotalStyle = wb.createCellStyle();
+        grandTotalStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+        grandTotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        Font gtFont = wb.createFont();
+        gtFont.setBold(true);
+        gtFont.setColor(IndexedColors.WHITE.getIndex());
+        grandTotalStyle.setFont(gtFont);
+
+        // ── Developer code findings only (skip WL generated stubs) ────────────
+        List<WlJBossAnalyzer.Finding> devFindings = findings.stream()
+                .filter(f -> !f.isGeneratedStub)
+                .toList();
+
+        if (devFindings.isEmpty()) {
+            sheet.createRow(r).createCell(0)
+                    .setCellValue("No developer code issues found.");
+            return;
+        }
+
+        // ── Group by JAR name (preserve encounter order) ───────────────────────
+        Map<String, List<WlJBossAnalyzer.Finding>> byJar = devFindings.stream()
+                .collect(Collectors.groupingBy(
+                        f -> f.jarName,
+                        LinkedHashMap::new,
+                        Collectors.toList()));
+
+        double grandTotal = 0.0;
+
+        for (Map.Entry<String, List<WlJBossAnalyzer.Finding>> entry : byJar.entrySet()) {
+            String jarName   = entry.getKey();
+            List<WlJBossAnalyzer.Finding> jarFindings = entry.getValue();
+
+            // JAR header row
+            int jarHeaderIdx = r;
+            Row jarRow = sheet.createRow(r++);
+            Cell jc = jarRow.createCell(0);
+            jc.setCellValue("▶  " + jarName);
+            jc.setCellStyle(s.categoryHeader);
+            sheet.addMergedRegion(new CellRangeAddress(jarHeaderIdx, jarHeaderIdx, 0, 5));
+
+            // Sort issues by severity within the JAR
+            List<WlJBossAnalyzer.Finding> sorted = jarFindings.stream()
+                    .sorted(Comparator.comparingInt(
+                            f -> SEVERITY_ORDER.getOrDefault(f.rule.severity(), 99)))
+                    .toList();
+
+            double jarTotal = 0.0;
+
+            for (WlJBossAnalyzer.Finding f : sorted) {
+                int   fileCount = f.affectedFiles.size();
+                double effort   = effortHours(f.rule.apiPattern(), f.rule.severity(), fileCount);
+                jarTotal += effort;
+
+                Row row = sheet.createRow(r++);
+                row.createCell(0).setCellValue(f.jarName);
+                row.createCell(1).setCellValue(f.rule.apiPattern());
+                row.createCell(2).setCellValue(f.rule.category());
+
+                Cell sevCell = row.createCell(3);
+                sevCell.setCellValue(f.rule.severity());
+                sevCell.setCellStyle(s.severityStyle(f.rule.severity()));
+
+                row.createCell(4).setCellValue(fileCount);
+                row.createCell(5).setCellValue(effort);
+            }
+
+            // Subtotal row for this JAR
+            grandTotal += jarTotal;
+            int subtotalIdx = r;
+            Row subtotalRow = sheet.createRow(r++);
+            Cell stLabel = subtotalRow.createCell(0);
+            stLabel.setCellValue("Subtotal — " + jarName);
+            stLabel.setCellStyle(subtotalStyle);
+            sheet.addMergedRegion(new CellRangeAddress(subtotalIdx, subtotalIdx, 0, 4));
+            Cell stValue = subtotalRow.createCell(5);
+            stValue.setCellValue(jarTotal);
+            stValue.setCellStyle(subtotalStyle);
+
+            r++; // blank row between JARs
+        }
+
+        // ── Grand total row ────────────────────────────────────────────────────
+        int grandTotalIdx = r;
+        Row grandTotalRow = sheet.createRow(r);
+        Cell gtLabel = grandTotalRow.createCell(0);
+        gtLabel.setCellValue("GRAND TOTAL — All Components");
+        gtLabel.setCellStyle(grandTotalStyle);
+        sheet.addMergedRegion(new CellRangeAddress(grandTotalIdx, grandTotalIdx, 0, 4));
+        Cell gtValue = grandTotalRow.createCell(5);
+        gtValue.setCellValue(grandTotal);
+        gtValue.setCellStyle(grandTotalStyle);
+    }
+
+    /**
+     * Estimated developer-hours to resolve one unique issue per JAR, scaling with
+     * both severity and the number of affected source files.
+     *
+     * Built-in formula:  effort = min(cap, base + max(1, files) × perFile)
+     *
+     *   CRITICAL : base 2.0 h + 0.50 h/file,  cap 20 h
+     *   HIGH     : base 1.0 h + 0.25 h/file,  cap 12 h
+     *   MEDIUM   : base 0.5 h + 0.10 h/file,  cap  8 h
+     *   INFO     : flat 0.25 h  (file count has no impact)
+     *
+     * Both the per-severity scale and individual rules can be overridden via
+     * {@code effort-overrides.properties} placed next to the JAR — see
+     * {@link effortanalyzer.EffortConfig} for the full property reference.
+     *
+     * @param ruleKey   API pattern used to look up a flat per-rule override
+     * @param severity  severity label from the finding rule
+     * @param fileCount number of source files affected by this finding
+     */
+    private static double effortHours(String ruleKey, String severity, int fileCount) {
+        EffortConfig cfg = EffortConfig.INSTANCE;
+
+        // Rule-level flat override takes highest precedence
+        OptionalDouble flat = cfg.flatOverride(ruleKey);
+        if (flat.isPresent()) return flat.getAsDouble();
+
+        String sev = severity == null ? "" : severity.toUpperCase();
+
+        // Built-in defaults
+        double base    = switch (sev) { case "CRITICAL" -> 2.0;  case "HIGH" -> 1.0;  case "MEDIUM" -> 0.5;  default -> 0.25; };
+        double perFile = switch (sev) { case "CRITICAL" -> 0.50; case "HIGH" -> 0.25; case "MEDIUM" -> 0.10; default -> 0.0;  };
+        double cap     = switch (sev) { case "CRITICAL" -> 20.0; case "HIGH" -> 12.0; case "MEDIUM" -> 8.0;  default -> 0.25; };
+
+        // Apply per-severity overrides from config (only the fields that were set)
+        Double[] ov = cfg.scaleOverrides(sev);
+        if (ov[0] != null) base    = ov[0];
+        if (ov[1] != null) perFile = ov[1];
+        if (ov[2] != null) cap     = ov[2];
+
+        return Math.min(cap, base + Math.max(1, fileCount) * perFile);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

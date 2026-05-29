@@ -2,6 +2,7 @@ package effortanalyzer.upgrade;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import effortanalyzer.EffortConfig;
 import effortanalyzer.config.AnalyzerConfig;
 import effortanalyzer.java21.Java21Rules;
 import effortanalyzer.library.LibraryUpgradeAnalyzer;
@@ -141,6 +142,7 @@ public class UpgradeAnalyzer {
             writeLibrarySheet(wb, s);
             writeChecklistSheet(wb, s);
             writeExcludedRulesSheet(wb, s);
+            writeEffortSheet(wb, s);
 
             try (FileOutputStream fos = new FileOutputStream(outPath.toFile())) {
                 wb.write(fos);
@@ -1019,6 +1021,257 @@ public class UpgradeAnalyzer {
         if (excludedRules.isEmpty()) {
             sheet.createRow(r).createCell(0).setCellValue("No rules are currently excluded.");
         }
+    }
+
+    // ── Sheet 7: Effort Analysis ──────────────────────────────────────────────
+
+    /**
+     * Effort Analysis sheet — one row per unique issue (IBM rule or library API) per
+     * component/JAR, with a per-component subtotal and a grand total across all
+     * components.
+     *
+     * Effort model:  effort = min(cap, base + max(1, files) × perFile)
+     *   CRITICAL / HIGH   : base 2 h + 0.50 h/file, cap 20 h
+     *   MEDIUM  / WARNING : base 1 h + 0.25 h/file, cap 12 h
+     *   LOW     / INFO    : flat 0.25 h
+     *
+     * IBM findings:     one row per unique IBM rule ID per component  (files = affected class count).
+     * Library findings: deduplicated per unique (class + method) per JAR (files = distinct source files).
+     */
+    private void writeEffortSheet(Workbook wb, Styles s) {
+        Sheet sheet = wb.createSheet("Effort Analysis");
+        sheet.setColumnWidth(0, 36 * 256);  // Component / JAR
+        sheet.setColumnWidth(1, 42 * 256);  // Issue / Rule / API
+        sheet.setColumnWidth(2, 18 * 256);  // Type
+        sheet.setColumnWidth(3, 14 * 256);  // Severity
+        sheet.setColumnWidth(4, 16 * 256);  // Files / Classes Affected
+        sheet.setColumnWidth(5, 14 * 256);  // Effort (h)
+
+        int r = 0;
+
+        // Title
+        Row titleRow = sheet.createRow(r++);
+        Cell tc = titleRow.createCell(0);
+        tc.setCellValue("Technical Debt Effort Analysis — Issues per Component / JAR");
+        tc.setCellStyle(s.title);
+        sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 5));
+
+        // Info bar
+        Row infoRow = sheet.createRow(r++);
+        Cell ic = infoRow.createCell(0);
+        ic.setCellValue(
+                "Effort = base + (files × rate), capped per issue."
+                + "  CRITICAL/HIGH: 2h + 0.5h/file (cap 20h)"
+                + "  |  MEDIUM/WARNING: 1h + 0.25h/file (cap 12h)"
+                + "  |  LOW/INFO: 0.25h flat"
+                + "  |  IBM: files = affected class count.  Library: files = distinct source files."
+                + "  |  Override per-severity or per-rule via effort-overrides.properties next to the JAR.");
+        ic.setCellStyle(s.infoBar);
+        sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, 5));
+        infoRow.setHeightInPoints(40);
+        r++; // blank
+
+        // Column headers
+        Row hRow = sheet.createRow(r++);
+        cellH(hRow, s.colHeader, 0, "Component / JAR");
+        cellH(hRow, s.colHeader, 1, "Issue / Rule / API");
+        cellH(hRow, s.colHeader, 2, "Type");
+        cellH(hRow, s.colHeader, 3, "Severity");
+        cellH(hRow, s.colHeader, 4, "Files / Classes Affected");
+        cellH(hRow, s.colHeader, 5, "Effort (h)");
+        sheet.createFreezePane(0, r);
+
+        // Local styles for subtotal and grand-total rows
+        CellStyle subtotalStyle = wb.createCellStyle();
+        subtotalStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+        subtotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        Font stFont = wb.createFont();
+        stFont.setBold(true);
+        subtotalStyle.setFont(stFont);
+
+        CellStyle grandTotalStyle = wb.createCellStyle();
+        grandTotalStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+        grandTotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        Font gtFont = wb.createFont();
+        gtFont.setBold(true);
+        gtFont.setColor(IndexedColors.WHITE.getIndex());
+        grandTotalStyle.setFont(gtFont);
+
+        // Collect all unique component keys (IBM keys + library JAR basenames)
+        Set<String> allKeys = new LinkedHashSet<>(ibmFindingsByComponent.keySet());
+        for (String jarPath : spring.getFindingsByJar().keySet()) {
+            allKeys.add(Path.of(jarPath).getFileName().toString()
+                    .replaceAll("\\.(jar|war|ear)$", ""));
+        }
+
+        if (allKeys.isEmpty()) {
+            sheet.createRow(r).createCell(0)
+                    .setCellValue("No issues found — nothing to report.");
+            return;
+        }
+
+        double grandTotal = 0.0;
+
+        for (String key : allKeys) {
+            List<IbmFinding> ibmFindings = ibmFindingsByComponent.getOrDefault(key, List.of());
+
+            // Deduplicate library findings by (deprecatedClass + methodName), tracking
+            // distinct source files per unique API for the file-aware effort calculation.
+            Map<String, LibraryUpgradeAnalyzer.Finding> dedupLib    = new LinkedHashMap<>();
+            Map<String, Set<String>>                    libFileSets = new LinkedHashMap<>();
+            for (Map.Entry<String, List<LibraryUpgradeAnalyzer.Finding>> entry
+                    : spring.getFindingsByJar().entrySet()) {
+                String jarBase = Path.of(entry.getKey()).getFileName().toString()
+                        .replaceAll("\\.(jar|war|ear)$", "");
+                if (jarBase.equals(key)) {
+                    for (LibraryUpgradeAnalyzer.Finding f : entry.getValue()) {
+                        String dk = f.deprecatedClass() + "#" + f.methodName();
+                        dedupLib.putIfAbsent(dk, f);
+                        libFileSets.computeIfAbsent(dk, x -> new LinkedHashSet<>())
+                                   .add(f.fileName());
+                    }
+                }
+            }
+
+            if (ibmFindings.isEmpty() && dedupLib.isEmpty()) continue;
+
+            // Component header row
+            int compHeaderIdx = r;
+            Row compRow = sheet.createRow(r++);
+            Cell cc = compRow.createCell(0);
+            cc.setCellValue("▶  " + key);
+            cc.setCellStyle(s.jarHeader);
+            sheet.addMergedRegion(new CellRangeAddress(compHeaderIdx, compHeaderIdx, 0, 5));
+
+            double compTotal = 0.0;
+
+            // IBM findings (sorted by severity) — files = affected class count
+            List<IbmFinding> sortedIbm = ibmFindings.stream()
+                    .sorted(Comparator.comparingInt(f -> severityOrder(f.severity())))
+                    .toList();
+
+            for (IbmFinding f : sortedIbm) {
+                int    fileCount = f.affectedClassCount();
+                double effort    = upgradeEffortHours(f.ruleId(), f.severity(), fileCount);
+                compTotal += effort;
+
+                Row row = sheet.createRow(r++);
+                row.createCell(0).setCellValue(f.component());
+
+                Cell issueCell = row.createCell(1);
+                issueCell.setCellValue(f.ruleId() + " — " + f.ruleTitle());
+                issueCell.setCellStyle(s.wrap);
+
+                row.createCell(2).setCellValue("Java 21 (IBM)");
+
+                Cell sevCell = row.createCell(3);
+                sevCell.setCellValue(f.severity());
+                CellStyle sevStyle = severityCellStyle(s, f.severity());
+                if (sevStyle != null) sevCell.setCellStyle(sevStyle);
+
+                row.createCell(4).setCellValue(fileCount);
+                row.createCell(5).setCellValue(effort);
+            }
+
+            // Library findings (deduplicated, sorted by severity) — files = distinct source files
+            List<LibraryUpgradeAnalyzer.Finding> sortedLib = dedupLib.values().stream()
+                    .sorted(Comparator.comparingInt(f -> severityOrder(f.severity())))
+                    .toList();
+
+            for (LibraryUpgradeAnalyzer.Finding f : sortedLib) {
+                String dk        = f.deprecatedClass() + "#" + f.methodName();
+                int    fileCount = libFileSets.getOrDefault(dk, Set.of()).size();
+                double effort    = upgradeEffortHours(dk, f.severity(), fileCount);
+                compTotal += effort;
+
+                Row row = sheet.createRow(r++);
+                row.createCell(0).setCellValue(key);
+
+                String api = (f.methodName() != null && !f.methodName().isBlank())
+                        ? f.deprecatedClass() + "#" + f.methodName()
+                        : f.deprecatedClass();
+                Cell issueCell = row.createCell(1);
+                issueCell.setCellValue(api);
+                issueCell.setCellStyle(s.wrap);
+
+                row.createCell(2).setCellValue(f.library());
+
+                Cell sevCell = row.createCell(3);
+                sevCell.setCellValue(f.severity());
+                CellStyle sevStyle = severityCellStyle(s, f.severity());
+                if (sevStyle != null) sevCell.setCellStyle(sevStyle);
+
+                row.createCell(4).setCellValue(fileCount);
+                row.createCell(5).setCellValue(effort);
+            }
+
+            // Subtotal row for this component
+            grandTotal += compTotal;
+            int subtotalIdx = r;
+            Row subtotalRow = sheet.createRow(r++);
+            Cell stLabel = subtotalRow.createCell(0);
+            stLabel.setCellValue("Subtotal — " + key);
+            stLabel.setCellStyle(subtotalStyle);
+            sheet.addMergedRegion(new CellRangeAddress(subtotalIdx, subtotalIdx, 0, 4));
+            Cell stValue = subtotalRow.createCell(5);
+            stValue.setCellValue(compTotal);
+            stValue.setCellStyle(subtotalStyle);
+
+            r++; // blank row between components
+        }
+
+        // Grand total row
+        int grandTotalIdx = r;
+        Row grandTotalRow = sheet.createRow(r);
+        Cell gtLabel = grandTotalRow.createCell(0);
+        gtLabel.setCellValue("GRAND TOTAL — All Components");
+        gtLabel.setCellStyle(grandTotalStyle);
+        sheet.addMergedRegion(new CellRangeAddress(grandTotalIdx, grandTotalIdx, 0, 4));
+        Cell gtValue = grandTotalRow.createCell(5);
+        gtValue.setCellValue(grandTotal);
+        gtValue.setCellStyle(grandTotalStyle);
+    }
+
+    /**
+     * Estimated developer-hours to resolve one unique issue per component/JAR,
+     * scaling with both severity and the number of affected files/classes.
+     * Handles IBM severity names (HIGH/MEDIUM/LOW) and library names (CRITICAL/WARNING/INFO).
+     *
+     * Built-in formula:  effort = min(cap, base + max(1, files) × perFile)
+     *
+     *   CRITICAL / HIGH   : base 2.0 h + 0.50 h/file, cap 20 h
+     *   MEDIUM  / WARNING : base 1.0 h + 0.25 h/file, cap 12 h
+     *   LOW     / INFO    : flat 0.25 h  (file count has no impact)
+     *
+     * Both the per-severity scale and individual rules can be overridden via
+     * {@code effort-overrides.properties} placed next to the JAR — see
+     * {@link effortanalyzer.EffortConfig} for the full property reference.
+     *
+     * @param ruleKey   rule ID or API key used to look up a flat per-rule override
+     * @param severity  severity label from the finding
+     * @param fileCount number of source files / classes affected by this finding
+     */
+    private static double upgradeEffortHours(String ruleKey, String severity, int fileCount) {
+        EffortConfig cfg = EffortConfig.INSTANCE;
+
+        // Rule-level flat override takes highest precedence
+        OptionalDouble flat = cfg.flatOverride(ruleKey);
+        if (flat.isPresent()) return flat.getAsDouble();
+
+        String sev = severity == null ? "" : severity.toUpperCase();
+
+        // Built-in defaults
+        double base    = switch (sev) { case "CRITICAL", "HIGH" -> 2.0;  case "MEDIUM", "WARNING" -> 1.0;  default -> 0.25; };
+        double perFile = switch (sev) { case "CRITICAL", "HIGH" -> 0.50; case "MEDIUM", "WARNING" -> 0.25; default -> 0.0;  };
+        double cap     = switch (sev) { case "CRITICAL", "HIGH" -> 20.0; case "MEDIUM", "WARNING" -> 12.0; default -> 0.25; };
+
+        // Apply per-severity overrides from config (only the fields that were set)
+        Double[] ov = cfg.scaleOverrides(sev);
+        if (ov[0] != null) base    = ov[0];
+        if (ov[1] != null) perFile = ov[1];
+        if (ov[2] != null) cap     = ov[2];
+
+        return Math.min(cap, base + Math.max(1, fileCount) * perFile);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
