@@ -23,31 +23,42 @@
 
 ---
 
+
+
 ## 1. Prerequisites
 
-| Requirement | Minimum | Notes |
-|-------------|---------|-------|
+
+| Requirement | Minimum | Notes                                                        |
+| ----------- | ------- | ------------------------------------------------------------ |
 | Java        | 21      | OpenJDK or Oracle JDK — must be on `PATH` or `JAVA_HOME` set |
-| Maven       | 3.8     | Required only if building from source |
+| Maven       | 3.8     | Required only if building from source                        |
+
+
+
 
 ### Check your Java version
 
 **Windows (Command Prompt or PowerShell):**
+
 ```bat
 java -version
 ```
 
 **Unix / Linux / macOS:**
+
 ```bash
 java -version
 ```
 
 Expected output (minimum):
+
 ```
 java version "21.x.x" ...
 ```
 
 ---
+
+
 
 ## 2. Building the Project
 
@@ -58,11 +69,13 @@ mvn clean package -DskipTests
 ```
 
 If your environment uses a local Maven settings file (e.g. to override corporate repositories):
+
 ```bash
 mvn clean package -DskipTests -s settings-local.xml
 ```
 
 The fat (shaded) JAR is produced at:
+
 ```
 target/EffortAnalyzer-2.0.0-shaded.jar
 ```
@@ -72,6 +85,8 @@ deployment folder.
 
 ---
 
+
+
 ## 3. IBM Scanner Setup (upgrade module)
 
 The `upgrade` module uses the **IBM Migration Toolkit for Application Binaries**
@@ -80,8 +95,10 @@ tool provided by IBM and must be downloaded separately.
 
 ### Step 1 — Download
 
-1. Go to: <https://www.ibm.com/support/pages/migration-toolkit-application-binaries>
+1. Go to: [https://www.ibm.com/support/pages/migration-toolkit-application-binaries](https://www.ibm.com/support/pages/migration-toolkit-application-binaries)
 2. Download `binaryAppScanner.jar`.
+
+
 
 ### Step 2 — Place next to the EffortAnalyzer JAR
 
@@ -107,13 +124,15 @@ EffortAnalyzer-Copy\
 > previous scan never mix with new results. The JSON files are kept after the run — you
 > can open them to inspect the raw IBM WAMT findings or re-run analysis at any time.
 
+
+
 ### Step 3 — (Optional) Override the path
 
 If the scanner is in a different location, pass it explicitly:
 
 ```bat
 :: Windows
-java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --input=C:\apps\lib ^
+java -jar EffortAnalyzer-2.0.0.jar --module=upgrade --input=C:\apps\lib ^
      --ibm-scanner=C:\tools\binaryAppScanner.jar
 ```
 
@@ -122,6 +141,8 @@ java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --input=C:\apps\lib ^
 java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --input=/opt/app/lib \
      --ibm-scanner=/opt/tools/binaryAppScanner.jar
 ```
+
+
 
 ### What if the scanner is not found?
 
@@ -133,6 +154,8 @@ The `upgrade` module still runs gracefully:
 
 ---
 
+
+
 ## 4. Running on Windows
 
 The `run.bat` launcher handles Java detection, argument validation, and provides an interactive menu.
@@ -140,6 +163,7 @@ The `run.bat` launcher handles Java detection, argument validation, and provides
 ### Interactive mode (recommended for first use)
 
 Open a Command Prompt in the folder containing `run.bat` and the JAR:
+
 ```bat
 run.bat
 ```
@@ -152,28 +176,40 @@ A numbered menu will appear. Select a module and follow the prompts.
 run.bat <module> [input-path] [output-file]
 ```
 
-| Module       | Input required | Default output file                     |
-|--------------|:--------------:|-----------------------------------------|
-| `upgrade`    | yes            | `Upgrade-Compatibility-Report.xlsx`     |
-| `wl-jboss26` | yes            | `WlToJBoss-WildFly26-Report.xlsx`       |
-| `wl-jboss27` | yes            | `WlToJBoss-WildFly27-Report.xlsx`       |
-| `analyze`    | optional       | `AnalyzerOutput.xlsx`                   |
-| `merge`      | no (see note)  | `MergedOutput.xlsx`                     |
+
+| Module       | Input required | Default output file                 |
+| ------------ | -------------- | ----------------------------------- |
+| `upgrade`    | yes            | `Upgrade-Compatibility-Report.xlsx` |
+| `wl15`       | yes            | `WL15-Migration-Report.xlsx`        |
+| `wl14`       | yes            | `WL14-Migration-Report.xlsx`        |
+| `wl-jboss26` | yes            | `WlToJBoss-WildFly26-Report.xlsx`   |
+| `wl-jboss27` | yes            | `WlToJBoss-WildFly27-Report.xlsx`   |
+| `analyze`    | optional       | `AnalyzerOutput.xlsx`               |
+| `merge`      | no (see note)  | `MergedOutput.xlsx`                 |
+
 
 > **upgrade module:** Place `binaryAppScanner.jar` next to the launcher scripts before running
 > (see [Section 3](#3-ibm-scanner-setup-upgrade-module)). It is auto-detected automatically.
+
+
 
 #### Examples
 
 ```bat
 :: Java 21 + library upgrade scan (IBM scanner auto-detected from same folder)
-run.bat upgrade  C:\apps\lib   Upgrade-Compatibility-Report.xlsx
+run.bat upgrade  c:\Development\JBoss\Jars2\   UpgradeCompatibilityReport.xlsx
+
+:: WebLogic 15 library migration scan
+run.bat wl15     c:\Development\JBoss\Jars2\   WL15-Migration-Report.xlsx
+
+:: WebLogic 14 library migration scan (same check set as wl15)
+run.bat wl14     c:\Development\JBoss\Jars2\   WL14-Migration-Report.xlsx
 
 :: WebLogic → WildFly 26 / JBoss EAP 7.4  (Java 8, javax.*)
-run.bat wl-jboss26 C:\apps\lib  MigrationWF26.xlsx
+run.bat wl-jboss26 c:\Development\JBoss\Jars2\  MigrationWF26.xlsx
 
 :: WebLogic → WildFly 27+ / JBoss EAP 8   (Java 21, jakarta.*)
-run.bat wl-jboss27 C:\apps\lib  MigrationWF27.xlsx
+run.bat wl-jboss27 c:\Development\JBoss\Jars2\  MigrationWF27.xlsx
 
 :: IBM Transformation Advisor analysis — external JSON reports directory
 run.bat analyze  C:\reports\json   AnalysisOutput.xlsx
@@ -185,14 +221,19 @@ run.bat analyze                    AnalysisOutput.xlsx
 run.bat help
 ```
 
+
+
 ### Configuring a custom Java home (Windows)
 
 If Java is not on your PATH, open `run.bat` in a text editor and set:
+
 ```bat
 set "DEFAULT_JAVA_HOME=C:\Program Files\Java\jdk-21"
 ```
 
 ---
+
+
 
 ## 5. Running on Unix / Linux / macOS
 
@@ -204,11 +245,15 @@ The `run.sh` launcher mirrors `run.bat`.
 chmod +x run.sh
 ```
 
+
+
 ### Interactive mode
 
 ```bash
 ./run.sh
 ```
+
+
 
 ### Command-line mode
 
@@ -216,11 +261,17 @@ chmod +x run.sh
 ./run.sh <module> [input-path] [output-file]
 ```
 
+
+
 #### Examples
 
 ```bash
 # Java 21 + library upgrade scan (IBM scanner auto-detected from same folder)
 ./run.sh upgrade   /opt/app/lib  Upgrade-Compatibility-Report.xlsx
+
+# WebLogic 15 library migration scan
+./run.sh wl15      /opt/app/lib  WL15-Migration-Report.xlsx
+./run.sh wl14      /opt/app/lib  WL14-Migration-Report.xlsx
 
 # WebLogic → WildFly 26 / JBoss EAP 7.4  (Java 8, javax.*)
 ./run.sh wl-jboss26 /opt/app/lib  MigrationWF26.xlsx
@@ -238,30 +289,39 @@ chmod +x run.sh
 ./run.sh help
 ```
 
+
+
 ### Configuring a custom Java home (Unix)
 
 Open `run.sh` and set:
+
 ```bash
 DEFAULT_JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
 ```
 
 Common Java 21 installation paths:
 
-| Distribution    | Typical path                                                  |
-|-----------------|---------------------------------------------------------------|
-| OpenJDK (apt)   | `/usr/lib/jvm/java-21-openjdk-amd64`                          |
-| Eclipse Temurin | `/usr/lib/jvm/temurin-21`                                     |
-| SDKMAN          | `~/.sdkman/candidates/java/21.x.x-tem/`                       |
-| Homebrew (macOS)| `/opt/homebrew/opt/openjdk@21`                                |
-| macOS system    | `/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home`  |
+
+| Distribution     | Typical path                                                 |
+| ---------------- | ------------------------------------------------------------ |
+| OpenJDK (apt)    | `/usr/lib/jvm/java-21-openjdk-amd64`                         |
+| Eclipse Temurin  | `/usr/lib/jvm/temurin-21`                                    |
+| SDKMAN           | `~/.sdkman/candidates/java/21.x.x-tem/`                      |
+| Homebrew (macOS) | `/opt/homebrew/opt/openjdk@21`                               |
+| macOS system     | `/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home` |
+
 
 ---
+
+
 
 ## 6. Direct Java Invocation (any platform)
 
 ```bash
 java -jar EffortAnalyzer-2.0.0-shaded.jar --module=<module> [--input=<path>] [--output=<file>]
 ```
+
+
 
 #### Examples
 
@@ -284,6 +344,12 @@ java -jar EffortAnalyzer-2.0.0-shaded.jar \
   --module=upgrade \
   --jar-list=jars.txt \
   --output=Upgrade-Compatibility-Report.xlsx
+
+# WebLogic 15 library migration scan
+java -jar EffortAnalyzer-2.0.0-shaded.jar \
+  --module=wl15 \
+  --input=/opt/app/lib \
+  --output=WL15-Migration-Report.xlsx
 
 # WebLogic → WildFly 26 migration
 java -jar EffortAnalyzer-2.0.0-shaded.jar \
@@ -318,13 +384,19 @@ java -jar EffortAnalyzer-2.0.0-shaded.jar \
 
 ---
 
+
+
 ## 7. Module Reference
+
+
 
 ### `upgrade` — Java 21 + Library Upgrade Compatibility Analyzer
 
 Runs two phases in a single pass and writes one combined **6-sheet Excel report**.
 
 ---
+
+
 
 #### Phase 1 — Java 21 JVM Compatibility (IBM Migration Toolkit)
 
@@ -336,42 +408,52 @@ java -jar binaryAppScanner.jar <input>
      --format=json --output=<jar-folder>/reports
 ```
 
-The JSON output files are written to the **`reports/` folder next to the EffortAnalyzer JAR**,
+The JSON output files are written to the `**reports/` folder next to the EffortAnalyzer JAR**,
 then parsed and filtered by the exclusion list, and the findings are written to the Excel report.
 
-**`reports/` folder lifecycle:**
+`**reports/` folder lifecycle:**
 
-| Event | What happens |
-|-------|-------------|
-| First run | `reports/` is created automatically |
-| Every run | `reports/` is cleaned before the IBM scanner runs (stale JSONs removed) |
+
+| Event     | What happens                                                                     |
+| --------- | -------------------------------------------------------------------------------- |
+| First run | `reports/` is created automatically                                              |
+| Every run | `reports/` is cleaned before the IBM scanner runs (stale JSONs removed)          |
 | After run | JSON files are **kept** for reference — open them to inspect raw IBM WAMT output |
+
 
 > **Prerequisite:** download `binaryAppScanner.jar` from IBM and place it next to the
 > EffortAnalyzer JAR. See [Section 3](#3-ibm-scanner-setup-upgrade-module).
 
 ---
 
+
+
 #### Phase 2 — Library Upgrade Compatibility (built-in)
 
-| Library          | Target version | Migration scope |
-|------------------|----------------|-----------------|
-| Spring Framework | 5.3.39         | 3.x / 4.x / 5.x → 5.3.39 |
-| Guava            | 31.1-jre       | Any prior version → 31.1 |
-| Guice            | 5.1.0          | 3.x / 4.x → 5.1.0 |
+
+| Library          | Target version | Migration scope                                                         |
+| ---------------- | -------------- | ----------------------------------------------------------------------- |
+| Spring Framework | 5.3.39         | 3.x / 4.x / 5.x → 5.3.39                                                |
+| Guava            | 31.1-jre       | Any prior version → 31.1                                                |
+| Guice            | 5.1.0          | 3.x / 4.x → 5.1.0                                                       |
 | Jersey           | 2.22.2         | 1.x → 2.x (complete rewrite: `com.sun.jersey` → `org.glassfish.jersey`) |
-| CGLib            | → ByteBuddy    | Any CGLib usage → ByteBuddy |
+| CGLib            | → ByteBuddy    | Any CGLib usage → ByteBuddy                                             |
+
 
 ---
 
+
+
 #### Arguments
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `--input=<path>` | yes* | JAR/WAR/EAR file or directory of archives |
-| `--jar-list=<file>` | yes* | Text file with one JAR path per line (alternative to `--input`) |
-| `--ibm-scanner=<path>` | no | Path to `binaryAppScanner.jar` (default: auto-detect from JAR folder) |
-| `--output=<file>` | no | Output Excel file (default: `Upgrade-Compatibility-Report.xlsx`) |
+
+| Argument               | Required | Description                                                           |
+| ---------------------- | -------- | --------------------------------------------------------------------- |
+| `--input=<path>`       | yes*     | JAR/WAR/EAR file or directory of archives                             |
+| `--jar-list=<file>`    | yes*     | Text file with one JAR path per line (alternative to `--input`)       |
+| `--ibm-scanner=<path>` | no       | Path to `binaryAppScanner.jar` (default: auto-detect from JAR folder) |
+| `--output=<file>`      | no       | Output Excel file (default: `Upgrade-Compatibility-Report.xlsx`)      |
+
 
 *One of `--input` or `--jar-list` is required.
 
@@ -396,17 +478,109 @@ java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --input=C:\apps\lib ^
 
 ---
 
+---
+
+
+
+### `wl15` — WebLogic 15 Library Migration
+
+Scans JARs, WARs, and EARs for API compatibility issues across the library upgrade
+set required for **WebLogic 15**. In addition, every bundled third-party library
+(archive names and `WEB-INF/lib/*.jar` style nested archives, or exact coordinates
+from embedded `META-INF/maven/.../pom.properties`) is version-checked against the
+built-in **LibraryUpgradeList** target table (28 rows — every library with a
+planned upgrade version) — results appear in the **🔢 Library Versions** sheet as
+`OUTDATED` / `OK` rows.
+
+#### Libraries and targets
+
+
+| Library                                      | Target        | Key APIs flagged                                                                                                        |
+| -------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Spring Framework                             | 6.2.11        | `org.springframework.remoting.*` (removed), `HandlerInterceptorAdapter` (removed), `CommonsMultipartResolver` (removed) |
+| Spring Security                              | 6.5.9         | `WebSecurityConfigurerAdapter`, `antMatchers`/`mvcMatchers`, `authorizeRequests`, `@EnableGlobalMethodSecurity`         |
+| Jackson                                      | 2.18.9        | `enableDefaultTyping()`, `DefaultTyping.EVERYTHING`, Joda-Time module                                                   |
+| Netty                                        | 4.1.135.Final | `ChannelHandlerContext.attr()`, `userEventTriggered()`, `HttpHeaders.addHeader/setHeader/getHeader`                     |
+| Log4j                                        | 2.25.4        | `org.apache.log4j` (log4j 1.x), `PatternLayout.createLayout()`, `ConsoleAppender.createAppender()`                      |
+| Jetty                                        | 12.0.33       | `javax.servlet` package, `AbstractHandler`, `HandlerWrapper`, `HandlerList`, WebSocket API                              |
+| JasperReports                                | 7.0.4         | `JRPdfExporter` (module split), `JRProperties`, `JasperExportManager` static methods                                    |
+| EhCache                                      | 3.11.1        | Entire `net.sf.ehcache` package (EhCache 2 → 3 full rewrite to `org.ehcache`)                                           |
+| commons-fileupload                           | 1.6.0         | `FileUpload`, `DiskFileItemFactory`, `ServletFileUpload`                                                                |
+| commons-beanutils                            | 1.11.0        | `BeanUtils.populate`, `ConvertUtils.convert`                                                                            |
+| hibernate-validator                          | 6.2.0         | `@NotEmpty`/`@NotBlank` in `org.hibernate.validator.constraints`                                                        |
+| c3p0                                         | 0.12.0        | `ComboPooledDataSource`, `C3P0Registry`                                                                                 |
+| MINA                                         | 2.0.28        | `IoHandlerAdapter`, `IoSession.write`                                                                                   |
+| nimbus-jose-jwt                              | 9.37.2        | `JWTClaimsSet.parse(JSONObject)`, `SecurityContext`                                                                     |
+| OWASP HTML Sanitizer                         | 20280101.1    | `PolicyFactory`, `HtmlPolicyBuilder`                                                                                    |
+| lz4-java, neethi, commons-vfs2, assertj-core | various       | Minor API changes                                                                                                       |
+
+
+
+
+#### Arguments
+
+
+| Argument            | Required | Description                                                     |
+| ------------------- | -------- | --------------------------------------------------------------- |
+| `--input=<path>`    | yes*     | JAR/WAR/EAR file or directory of archives                       |
+| `--jar-list=<file>` | yes*     | Text file with one JAR path per line (alternative to `--input`) |
+| `--output=<file>`   | no       | Output Excel file (default: `WL15-Migration-Report.xlsx`)       |
+| `--library-versions=<file>` | no | Custom `library-versions.properties` target table (overrides built-in targets; can add artifacts with `key=version:SEVERITY:Display` or remove with `disable.<artifact>=true`) |
+
+
+*One of `--input` or `--jar-list` is required.
+
+```bat
+:: Windows
+run.bat wl15  C:\apps\lib   WL15-Migration-Report.xlsx
+
+:: Unix
+./run.sh wl15 /opt/app/lib  WL15-Migration-Report.xlsx
+```
+
+---
+
+
+
+### `wl14` — WebLogic 14 Library Migration
+
+Runs the **exact same check set as `wl15`** (API compatibility scan + bundled
+library version checks) and produces the same 6-sheet report, labelled for
+**WebLogic 14**. All `wl15` arguments — including `--library-versions` — apply.
+
+
+| Argument            | Required | Description                                                     |
+| ------------------- | -------- | --------------------------------------------------------------- |
+| `--input=<path>`    | yes*     | JAR/WAR/EAR file or directory of archives                       |
+| `--jar-list=<file>` | yes*     | Text file with one JAR path per line (alternative to `--input`) |
+| `--output=<file>`   | no       | Output Excel file (default: `WL14-Migration-Report.xlsx`)       |
+
+
+```bat
+:: Windows
+run.bat wl14  C:\apps\lib   WL14-Migration-Report.xlsx
+
+:: Direct
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl14 --input=/opt/app/lib
+```
+
+---
+
+
+
 ### `wl-jboss26` — WebLogic → WildFly 26 / JBoss EAP 7.4
 
 Scans JARs, WARs, and EARs for patterns that need attention when migrating
 from WebLogic to **WildFly 26 / JBoss EAP 7.4**.
 
-| Target attribute | Value        |
-|------------------|--------------|
-| Java version     | Java 8       |
-| EE specification | Jakarta EE 8 |
-| API namespace    | `javax.*`    |
+
+| Target attribute | Value            |
+| ---------------- | ---------------- |
+| Java version     | Java 8           |
+| EE specification | Jakarta EE 8     |
+| API namespace    | `javax.*`        |
 | Namespace change | **Not required** |
+
 
 Reports cover: WebLogic-specific APIs, EJB legacy patterns (CMP/BMP), JNDI
 naming, JMS configuration, classloading, and third-party library compatibility.
@@ -415,17 +589,21 @@ naming, JMS configuration, classloading, and third-party library compatibility.
 
 ---
 
+
+
 ### `wl-jboss27` — WebLogic → WildFly 27+ / JBoss EAP 8
 
 Scans JARs, WARs, and EARs for patterns that need attention when migrating
 from WebLogic to **WildFly 27+ / JBoss EAP 8**.
 
+
 | Target attribute | Value         |
-|------------------|---------------|
+| ---------------- | ------------- |
 | Java version     | Java 21       |
 | EE specification | Jakarta EE 10 |
 | API namespace    | `jakarta.*`   |
 | Namespace change | **Required**  |
+
 
 Reports cover: all `wl-jboss26` topics plus `javax.*` → `jakarta.*` namespace
 migration and Java 21 incompatible APIs.
@@ -434,12 +612,14 @@ migration and Java 21 incompatible APIs.
 
 ---
 
+
+
 ### `analyze` — IBM Transformation Advisor Report Analyzer
 
 Reads IBM Transformation Advisor JSON analysis reports and produces a
 consolidated, grouped Excel workbook. Findings are grouped by component and rule.
 
-**`--input=<dir>`** (optional) — directory containing `*.json` IBM TA report files.  
+`**--input=<dir>`** (optional) — directory containing `*.json` IBM TA report files.  
 If omitted, the bundled `reports/` folder inside the JAR is used.
 
 **Exclusions:** 16 informational IBM TA rules are excluded by default.
@@ -455,6 +635,8 @@ run.bat analyze                    AnalysisOutput.xlsx
 
 ---
 
+
+
 ### `merge` — Excel Merger
 
 Merges a JIRA ticket report spreadsheet with a component list spreadsheet,
@@ -464,24 +646,32 @@ producing a combined output Excel file.
 
 ---
 
+
+
 ## 8. How to Read the Reports
 
 ---
+
+
 
 ### All modules — Severity colour coding
 
 Every finding is colour-coded by severity:
 
-| Colour | Severity | Meaning |
-|--------|----------|---------|
-| 🟠 Orange | **HIGH** | Will fail at runtime — fix before deployment |
-| 🟡 Yellow | **MEDIUM** | Deprecated or behaviorally changed — plan to fix |
-| 🟢 Green | **LOW** | Informational or soft-deprecated — low risk, review when convenient |
+
+| Colour    | Severity   | Meaning                                                             |
+| --------- | ---------- | ------------------------------------------------------------------- |
+| 🟠 Orange | **HIGH**   | Will fail at runtime — fix before deployment                        |
+| 🟡 Yellow | **MEDIUM** | Deprecated or behaviorally changed — plan to fix                    |
+| 🟢 Green  | **LOW**    | Informational or soft-deprecated — low risk, review when convenient |
+
 
 Fix all **HIGH** items first. These APIs have been removed from Java 21 or the
 target library version and will cause runtime failures.
 
 ---
+
+
 
 ### `upgrade` module — 6-sheet report
 
@@ -489,33 +679,62 @@ The report opens to the **📋 Instructions** sheet, which contains a complete
 in-report guide. Read it first before looking at the findings.
 Every other sheet has a light-blue instruction bar at the top.
 
-| Sheet | What to do here |
-|---|---|
-| **📋 Instructions** | Read once. Explains every sheet, severity guide, migration steps, and how to manage exclusions. |
-| **📊 Summary** | Triage. Find components with the most HIGH issues. Sort by the Priority column to know where to start. |
-| **☕ Java 21 Issues (IBM)** | Fix HIGH rules first. Each row has an IBM WAMT Rule ID — search it at [ibm.com/docs/en/wamt](https://www.ibm.com/docs/en/wamt) for code-before/after migration guidance. The `Next Steps` column gives a direct search hint. |
-| **📦 Library Issues** | Simple substitutions. The `Replacement API` and `What to Do` columns tell you exactly what to change. |
-| **✅ Remediation Checklist** | Your migration task list. One row = one unique fix (deduplicated). Sorted by severity. Mark `Done?` as you complete each fix. Share with your team to coordinate work. |
-| **🚫 Excluded Rules** | Reference. Shows every rule that was filtered out, with the reason. Edit `upgrade-excluded-rules.txt` to re-enable or add exclusions. |
+
+| Sheet                       | What to do here                                                                                                                                                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **📋 Instructions**         | Read once. Explains every sheet, severity guide, migration steps, and how to manage exclusions.                                                                                                                              |
+| **📊 Summary**              | Triage. Find components with the most HIGH issues. Sort by the Priority column to know where to start.                                                                                                                       |
+| **☕ Java 21 Issues (IBM)**  | Fix HIGH rules first. Each row has an IBM WAMT Rule ID — search it at [ibm.com/docs/en/wamt](https://www.ibm.com/docs/en/wamt) for code-before/after migration guidance. The `Next Steps` column gives a direct search hint. |
+| **📦 Library Issues**       | Simple substitutions. The `Replacement API` and `What to Do` columns tell you exactly what to change.                                                                                                                        |
+| **✅ Remediation Checklist** | Your migration task list. One row = one unique fix (deduplicated). Sorted by severity. Mark `Done?` as you complete each fix. Share with your team to coordinate work.                                                       |
+| **🚫 Excluded Rules**       | Reference. Shows every rule that was filtered out, with the reason. Edit `upgrade-excluded-rules.txt` to re-enable or add exclusions.                                                                                        |
+
 
 **IBM Rule IDs** in the `☕ Java 21 Issues` sheet are IBM WAMT rule names
 (e.g. `FinalizationDeprecated`, `RemovedSunAPIs`, `DetectThreadStop`).  
-Search any Rule ID at <https://www.ibm.com/docs/en/wamt> for detailed code examples.
+Search any Rule ID at [https://www.ibm.com/docs/en/wamt](https://www.ibm.com/docs/en/wamt) for detailed code examples.
 
 **Default exclusions:** 16 IBM TA informational rules are always excluded.
 The `🚫 Excluded Rules` sheet lists them all with human-readable explanations.
 
 ---
 
+
+
+### `wl15` / `wl14` modules — 6-sheet report
+
+
+| Sheet                     | What to do here                                                                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **📋 Instructions**       | One-time read: what the report covers and how each sheet is organised.                                                                                                                 |
+| **📊 Summary**            | Check total findings per library plus the outdated-library counts. Libraries with the most CRITICAL / HIGH findings are the highest-risk upgrade components.                          |
+| **📦 Library Issues**     | Full detail of every finding: JAR, source file, line number, library, deprecated API, replacement guidance.                                                                            |
+| **✅ Remediation Checklist** | Your migration task list. Each row is a unique API change, de-duplicated across all JARs. The `# Files` column shows how many files use each deprecated API — use it to prioritise.  |
+| **⏱ Effort Analysis**     | Estimated remediation hours per JAR with subtotals and a grand total (override via `effort-overrides.properties`).                                                                     |
+| **🔢 Library Versions**   | Bundled third-party artifacts detected in the scanned archives with detected vs. target versions. `OUTDATED` rows (sorted first, severity-coloured) are upgrade tasks; `OK` rows confirm compliance. |
+
+
+**Reading the Checklist:**
+
+- Sort by **Severity** (CRITICAL first) to prioritise your migration backlog.
+- The **Replacement / Action** column gives the exact API to switch to.
+- The **# Files** column indicates effort — a count of 1 is a quick fix; a count of 20+ warrants a team task.
+
+---
+
+
+
 ### `wl-jboss26` / `wl-jboss27` module report sheets
 
-| Sheet | Purpose |
-|---|---|
-| **Summary** | Severity/category breakdown, per-JAR issue counts, note on excluded WebLogic stubs |
-| **All Findings** | Full detail per JAR: Source column (green = developer code, grey = WL-generated stub), API pattern, severity, remediation |
-| **JAR Inventory** | Per-JAR class count, issue count, generated stub count |
-| **Checklist** | Deduplicated action list. `☐` = action needed, `—` = WL-generated stub (informational only) |
+
+| Sheet                  | Purpose                                                                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Summary**            | Severity/category breakdown, per-JAR issue counts, note on excluded WebLogic stubs                                                                     |
+| **All Findings**       | Full detail per JAR: Source column (green = developer code, grey = WL-generated stub), API pattern, severity, remediation                              |
+| **JAR Inventory**      | Per-JAR class count, issue count, generated stub count                                                                                                 |
+| **Checklist**          | Deduplicated action list. `☐` = action needed, `—` = WL-generated stub (informational only)                                                            |
 | **Migration Playbook** | Step-by-step numbered guides for complex migrations: HomeInterfaceHelper, jboss-ejb3.xml setup, Platform.jndi(), security, javax→jakarta, classloading |
+
 
 **Green "Developer code" rows** in All Findings and Checklist are real issues that
 need developer attention.
@@ -526,7 +745,11 @@ hand-written code and will not be present in a WildFly deployment.
 
 ---
 
+
+
 ## 9. Adding Custom Rules
+
+
 
 ### Custom library rules (`upgrade` module — Spring / library side)
 
@@ -538,6 +761,8 @@ library|className|methodName|severity|replacement|description
 ```
 
 ---
+
+
 
 ### `wl-jboss` module custom rules
 
@@ -552,6 +777,8 @@ This file already contains pre-populated Kernel project-specific patterns
 
 ---
 
+
+
 ## 10. Excluding Rules
 
 The `upgrade` module supports an exclusion file that suppresses findings you
@@ -564,20 +791,23 @@ have already addressed or intentionally accept.
 Two layers of exclusions are always active:
 
 1. **16 IBM TA defaults** (hardcoded) — the same informational rules excluded by the
-   standalone `analyze` module (e.g. `CLDRLocaleDataByDefault`, `RunJDeps`,
+  standalone `analyze` module (e.g. `CLDRLocaleDataByDefault`, `RunJDeps`,
    `Java21GeneralInfoAndPotentialIssues`). These cannot be re-enabled from the file.
-
-2. **`upgrade-excluded-rules.txt`** — user-editable file for additional exclusions.
+2. `**upgrade-excluded-rules.txt`** — user-editable file for additional exclusions.
 
 The `🚫 Excluded Rules` sheet in the report lists every excluded rule with its reason.
 
 ### Supported exclusion formats
 
-| Format | Example | Effect |
-|--------|---------|--------|
-| IBM WAMT rule name | `RemovedJaxBModuleNotProvided` | Suppresses that IBM rule |
-| Spring library name | `Guava 31.1-jre` | Suppresses all Guava library findings |
-| Class prefix | `org.springframework.remoting.jaxrpc` | Suppresses a specific Spring class |
+
+| Format              | Example                               | Effect                                |
+| ------------------- | ------------------------------------- | ------------------------------------- |
+| IBM WAMT rule name  | `RemovedJaxBModuleNotProvided`        | Suppresses that IBM rule              |
+| Spring library name | `Guava 31.1-jre`                      | Suppresses all Guava library findings |
+| Class prefix        | `org.springframework.remoting.jaxrpc` | Suppresses a specific Spring class    |
+
+
+
 
 ### How to use the exclusion file
 
@@ -586,7 +816,7 @@ The `🚫 Excluded Rules` sheet in the report lists every excluded rule with its
 3. Lines starting with `#` are comments.
 4. Re-run the tool — that rule will no longer appear in the report.
 
-**Example — suppress after confirming JAXB dependency is added to `pom.xml`:**
+**Example — suppress after confirming JAXB dependency is added to** `pom.xml`**:**
 
 ```
 # Add this line to exclude the JAXB removal finding:
@@ -594,6 +824,8 @@ RemovedJaxBModuleNotProvided
 ```
 
 ---
+
+
 
 ## 11. Configuration File
 
@@ -618,7 +850,11 @@ See the bundled `analyzer.properties` for all available keys with descriptions.
 
 ---
 
+
+
 ## 12. Troubleshooting
+
+
 
 ### IBM scanner not found
 
@@ -635,11 +871,15 @@ See the bundled `analyzer.properties` for all available keys with descriptions.
 
 ---
 
+
+
 ### Java 21 Issues sheet is empty / shows "scanner not found"
 
 The IBM scanner was not found at runtime. See the troubleshooting entry above.
 
 ---
+
+
 
 ### Java not found
 
@@ -649,9 +889,11 @@ The IBM scanner was not found at runtime. See the troubleshooting entry above.
 
 - Verify Java 21+ is installed: `java -version`
 - Add Java to your `PATH`, or set `JAVA_HOME`, or configure `DEFAULT_JAVA_HOME`
-  inside the launcher script.
+inside the launcher script.
 
 ---
+
+
 
 ### JAR not found
 
@@ -664,6 +906,8 @@ The IBM scanner was not found at runtime. See the troubleshooting entry above.
 
 ---
 
+
+
 ### Report not created — access denied
 
 ```
@@ -674,6 +918,8 @@ ERROR ... Output file exists but cannot be overwritten
 - Remove the read-only attribute from the file, or choose a different output filename.
 
 ---
+
+
 
 ### Report not created — directory missing
 
@@ -686,13 +932,32 @@ ERROR ... Cannot create output directory
 
 ---
 
+
+
 ### Exit code 9009 (Windows)
 
 This code means Windows could not find a command. Check that:
+
 - `run.bat` has not been modified to include characters that CMD misinterprets.
 - The `JAVA_EXE` path has no trailing spaces or invisible characters.
 
 ---
+
+
+
+### `wl15` report shows zero findings
+
+The `wl15` scanner checks source code inside JARs for references to deprecated
+APIs. Zero findings means none of the scanned JARs contain Java source or
+bytecode that uses the listed APIs. Verify that:
+
+- The `--input` path points to the correct JARs / directory.
+- The JARs contain `.java` source files or `.class` files (not just resources).
+- The application actually uses the flagged libraries (Spring, Jetty, Jackson, etc.).
+
+---
+
+
 
 ### Identical reports for `wl-jboss26` and `wl-jboss27`
 
@@ -707,6 +972,8 @@ run.bat wl-jboss27 C:\apps\lib MigrationWF27.xlsx
 ```
 
 ---
+
+
 
 ### Unknown module error
 
@@ -723,3 +990,4 @@ run.bat spring  C:\apps\lib
 :: New
 run.bat upgrade C:\apps\lib
 ```
+

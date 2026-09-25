@@ -7,6 +7,8 @@ import effortanalyzer.config.AnalyzerConfig;
 import effortanalyzer.config.AppConfig;
 import effortanalyzer.merger.TicketComponentMerger;
 import effortanalyzer.upgrade.UpgradeAnalyzer;
+import effortanalyzer.wl14.Wl14Analyzer;
+import effortanalyzer.wl15.Wl15Analyzer;
 import effortanalyzer.wljboss.WlJBossAnalyzer;
 import effortanalyzer.wljboss.WlJBossRules;
 
@@ -57,6 +59,8 @@ public class EffortAnalyzerApp {
         try {
             switch (cfg.getModule()) {
                 case AppConfig.MODULE_UPGRADE    -> runUpgrade(cfg);
+                case AppConfig.MODULE_WL15       -> runWl15(cfg);
+                case AppConfig.MODULE_WL14       -> runWl14(cfg);
                 case AppConfig.MODULE_ANALYZE    -> runAnalyze(cfg);
                 case AppConfig.MODULE_MERGE      -> runMerge(cfg);
                 case AppConfig.MODULE_WL_JBOSS26 -> runWlJBoss(cfg, WlJBossRules.TargetProfile.WILDFLY26_JAVA8);
@@ -73,6 +77,32 @@ public class EffortAnalyzerApp {
             logger.error("Module '{}' failed: {}", cfg.getModule(), e.getMessage(), e);
             System.exit(1);
         }
+    }
+
+    // ── Module: wl15 ──────────────────────────────────────────────────────────
+
+    private static void runWl15(AppConfig cfg) throws Exception {
+        String inputPath = cfg.getJarListFile().isBlank()
+                ? cfg.getInputPath()
+                : expandJarList(cfg.getJarListFile());
+
+        Wl15Analyzer analyzer = new Wl15Analyzer(cfg.getLibraryVersionsFile());
+        analyzer.analyze(inputPath);
+        analyzer.generateReport(cfg.getOutputFile());
+        logger.info("WL15 library migration analysis complete → {}", cfg.getOutputFile());
+    }
+
+    // ── Module: wl14 ──────────────────────────────────────────────────────────
+
+    private static void runWl14(AppConfig cfg) throws Exception {
+        String inputPath = cfg.getJarListFile().isBlank()
+                ? cfg.getInputPath()
+                : expandJarList(cfg.getJarListFile());
+
+        Wl14Analyzer analyzer = new Wl14Analyzer(cfg.getLibraryVersionsFile());
+        analyzer.analyze(inputPath);
+        analyzer.generateReport(cfg.getOutputFile());
+        logger.info("WL14 library migration analysis complete → {}", cfg.getOutputFile());
     }
 
     // ── Module: analyze ───────────────────────────────────────────────────────

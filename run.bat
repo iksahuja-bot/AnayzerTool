@@ -10,6 +10,7 @@ setlocal EnableDelayedExpansion
 ::
 ::  USAGE (with arguments):
 ::    run.bat upgrade    C:\app\lib  report.xlsx
+::    run.bat wl15       C:\app\lib  WL15-Migration-Report.xlsx
 ::    run.bat wl-jboss26 C:\app\lib  migration26.xlsx
 ::    run.bat wl-jboss27 C:\app\lib  migration27.xlsx
 ::    run.bat analyze    C:\reports\json  ta-analysis.xlsx
@@ -39,6 +40,7 @@ if /i "%~1"=="upgrade"    goto :run_from_args
 if /i "%~1"=="wl-jboss26" goto :run_from_args
 if /i "%~1"=="wl-jboss27" goto :run_from_args
 if /i "%~1"=="wl-jboss"   goto :run_from_args
+if /i "%~1"=="wl15"        goto :run_from_args
 if /i "%~1"=="analyze"    goto :run_from_args
 if /i "%~1"=="merge"      goto :run_from_args
 if not "%~1"==""          goto :show_help
@@ -75,7 +77,10 @@ echo     [4]  IBM Transformation Advisor Report Analyzer
 echo.
 echo     [5]  Excel Merger  (Ticket list + Component list)
 echo.
-echo     [6]  Help
+echo     [6]  WebLogic 15 Library Migration
+echo            Spring 6 / Jetty 12 / Jackson 2.18 / Netty 4.1 / Log4j 2.25 / EhCache 3 / ...
+echo.
+echo     [7]  Help
 echo.
 echo     [Q]  Quit
 echo.
@@ -86,9 +91,10 @@ if /i "!CHOICE!"=="2" goto :menu_wljboss26
 if /i "!CHOICE!"=="3" goto :menu_wljboss27
 if /i "!CHOICE!"=="4" goto :menu_analyze
 if /i "!CHOICE!"=="5" goto :menu_merge
-if /i "!CHOICE!"=="6" goto :show_help
+if /i "!CHOICE!"=="6" goto :menu_wl15
+if /i "!CHOICE!"=="7" goto :show_help
 if /i "!CHOICE!"=="Q" goto :end
-echo   [!] Invalid choice. Please enter 1-6 or Q.
+echo   [!] Invalid choice. Please enter 1-7 or Q.
 goto :interactive_menu
 
 :: ── Menu handlers ─────────────────────────────────────────────────────────────
@@ -141,6 +147,14 @@ set /p COMP_FILE="  Component Excel file: "
 set /p ARG_OUTPUT="  Output Excel file [MergedOutput.xlsx]: "
 if "!ARG_OUTPUT!"=="" set "ARG_OUTPUT=MergedOutput.xlsx"
 goto :confirm_merge
+
+:menu_wl15
+set "ARG_MODULE=wl15"
+echo.
+set /p ARG_INPUT="  Path to JAR/WAR/EAR file or directory: "
+set /p ARG_OUTPUT="  Output Excel file [WL15-Migration-Report.xlsx]: "
+if "!ARG_OUTPUT!"=="" set "ARG_OUTPUT=WL15-Migration-Report.xlsx"
+goto :confirm
 
 :confirm
 echo.
@@ -309,6 +323,7 @@ echo.
 echo   USAGE
 echo     run.bat                                   Launch interactive menu
 echo     run.bat upgrade    ^<input^> [output]      Java 21 JVM + library upgrade scan
+echo     run.bat wl15       ^<input^> [output]      WebLogic 15 library migration scan
 echo     run.bat wl-jboss26 ^<input^> [output]      WebLogic to WildFly 26 / EAP 7.4 (Java 8)
 echo     run.bat wl-jboss27 ^<input^> [output]      WebLogic to WildFly 27+ / EAP 8 (Java 21)
 echo     run.bat analyze    [input]  [output]      IBM TA report analysis (input = JSON dir)
@@ -327,8 +342,13 @@ echo                   Output: 6-sheet Excel with guidance on every sheet
 echo                   Exclusions: edit upgrade-excluded-rules.txt
 echo                   IBM scanner override: add --ibm-scanner=^<path^> to the command
 echo.
-echo     wl-jboss26  WebLogic migration analysis targeting:
-echo                 WildFly 26 / JBoss EAP 7.4  --  Java 8  --  javax.*
+echo     wl15        WebLogic 15 library migration scan:
+echo                 Spring 6.2.11 / Spring Security 6.5.9 / Jetty 12.0.33
+echo                 Jackson 2.18.9 / Netty 4.1.135 / Log4j 2.25.4
+echo                 JasperReports 7.0.4 / EhCache 3.11.1 / and more
+echo                 Output: 4-sheet Excel (Summary + Findings + Critical^&High + Checklist)
+echo.
+echo     wl-jboss26  WebLogic migration analysis targeting:echo                 WildFly 26 / JBoss EAP 7.4  --  Java 8  --  javax.*
 echo                 NO javax-^>jakarta namespace migration needed
 echo.
 echo     wl-jboss27  WebLogic migration analysis targeting:
@@ -344,6 +364,7 @@ echo     merge       Merges JIRA ticket report with a component list
 echo.
 echo   EXAMPLES
 echo     run.bat upgrade    C:\app\lib   Upgrade-Compatibility-Report.xlsx
+echo     run.bat wl15       C:\app\lib   WL15-Migration-Report.xlsx
 echo     run.bat wl-jboss26 C:\app\lib   WlToJBoss-WildFly26-Report.xlsx
 echo     run.bat wl-jboss27 C:\app\lib   WlToJBoss-WildFly27-Report.xlsx
 echo     run.bat analyze    C:\reports\json   AnalyzerOutput.xlsx

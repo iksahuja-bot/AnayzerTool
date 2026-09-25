@@ -9,6 +9,8 @@ A suite of analysis tools for migration planning, API deprecation detection, and
 | Module | What it does | Input |
 |--------|-------------|-------|
 | [`upgrade`](#upgrade--upgrade-compatibility-analyzer) | Runs IBM WAMT (`binaryAppScanner.jar`) for Java 8→21 JVM compatibility + built-in Spring / Guava / Guice / Jersey / CGLib library scan. Produces a single 6-sheet Excel report. | JAR / WAR / EAR or directory |
+| [`wl15`](#wl15--weblogic-15-library-migration) | Scans JARs for API compatibility issues across the WL15 library upgrade set: Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3, JasperReports 7, and more — plus bundled-library **version checks** against the WL15 targets. Produces a 6-sheet Excel report with a Checklist and a Library Versions sheet. | JAR / WAR / EAR or directory |
+| [`wl14`](#wl14--weblogic-14-library-migration) | Runs the same API and library-version check set as `wl15`, with the report labelled for WebLogic 14. | JAR / WAR / EAR or directory |
 | [`wl-jboss26`](#wl-jboss26--weblogic--wildfly-26) | WebLogic → WildFly 26 / JBoss EAP 7.4 migration analysis (Java 8, `javax.*`) | JAR / WAR / EAR or directory |
 | [`wl-jboss27`](#wl-jboss27--weblogic--wildfly-27) | WebLogic → WildFly 27+ / JBoss EAP 8 migration analysis (Java 21, `jakarta.*`) | JAR / WAR / EAR or directory |
 | [`analyze`](#analyze--ibm-transformation-advisor-report-analyzer) | Consolidates IBM Transformation Advisor JSON reports into a grouped Excel workbook | Optional external JSON folder |
@@ -37,7 +39,8 @@ Output JAR: `target/EffortAnalyzer-2.0.0-shaded.jar`
 ### Run (Windows)
 
 ```bat
-run.bat upgrade  C:\apps\lib
+run.bat upgrade    C:\apps\lib
+run.bat wl15       C:\apps\lib
 run.bat wl-jboss26 C:\apps\lib
 run.bat wl-jboss27 C:\apps\lib
 run.bat analyze
@@ -48,7 +51,8 @@ run.bat help
 
 ```bash
 chmod +x run.sh          # first time only
-./run.sh upgrade  /opt/app/lib
+./run.sh upgrade    /opt/app/lib
+./run.sh wl15       /opt/app/lib
 ./run.sh wl-jboss26 /opt/app/lib
 ./run.sh wl-jboss27 /opt/app/lib
 ./run.sh analyze
@@ -59,7 +63,10 @@ chmod +x run.sh          # first time only
 
 ```bash
 # IBM scanner auto-detected from the working directory
-java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --input=/opt/app/lib
+java -jar EffortAnalyzer-2.0.0.jar --module=upgrade --input=/opt/app/lib
+
+# WL15 library migration scan
+java -jar EffortAnalyzer-2.0.0.jar --module=wl15 --input=/opt/app/lib
 
 # Explicit IBM scanner path
 java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --input=/opt/app/lib \
@@ -136,6 +143,111 @@ Detects deprecated or removed APIs when upgrading:
 
 ---
 
+### `wl15` — WebLogic 15 Library Migration
+
+Scans JARs / WARs / EARs for API compatibility issues across the library upgrade
+set required for **WebLogic 15**, and detects bundled third-party libraries
+whose **version** is below the WL15 target — producing a **6-sheet Excel report**.
+
+#### Libraries covered
+
+| Library | Target version | Key breaking changes flagged |
+|---------|---------------|------------------------------|
+| Spring Framework | 6.2.11 | Remoting packages removed; `HandlerInterceptorAdapter` removed; `CommonsMultipartResolver` removed |
+| Spring Security | 6.5.9 | `WebSecurityConfigurerAdapter` removed; `antMatchers`/`mvcMatchers` removed; `@EnableGlobalMethodSecurity` removed |
+| Jackson | 2.18.9 | `enableDefaultTyping()` removed; `DefaultTyping.EVERYTHING` removed; Joda module deprecated |
+| Netty | 4.1.135.Final | `ChannelHandlerContext.attr()` deprecated; `userEventTriggered()` deprecated; `HttpHeaders` method renames |
+| Log4j | 2.25.4 | log4j 1.x bridge flagged; `PatternLayout`/`ConsoleAppender` builder API |
+| Jetty | 12.0.33 | Full `javax.servlet` → `jakarta.servlet` migration; `AbstractHandler`/`HandlerWrapper`/`HandlerList` removed |
+| JasperReports | 7.0.4 | `JRPdfExporter` moved to separate module; `JRProperties` removed; export manager changes |
+| EhCache | 3.11.1 | Complete `net.sf.ehcache` → `org.ehcache` namespace change (EhCache 2→3 rewrite) |
+| commons-fileupload | 1.6.0 | API moved to `commons-fileupload2`; Jakarta variant for Servlet 5+ |
+| commons-beanutils | 1.11.0 | Type conversion and null-handling tightened |
+| hibernate-validator | 6.2.0 | `@NotEmpty`/`@NotBlank` — prefer `jakarta.validation` equivalents |
+| c3p0 | 0.12.0 | Connection pool property naming changes |
+| MINA | 2.0.28 | `IoHandlerAdapter`/`IoSession` API changes |
+| nimbus-jose-jwt | 9.37.2 | `JWTClaimsSet.parse(JSONObject)` removed |
+| OWASP HTML Sanitizer | 20280101.1 | `HtmlPolicyBuilder` API updates |
+| lz4-java, neethi, commons-vfs2, assertj-core | various | Minor deprecations and removals |
+
+#### Bundled library version checks
+
+In addition to the API scan, every archive (and every library JAR nested inside
+WAR/EAR archives such as `WEB-INF/lib/`) is identified — by file name or embedded
+`META-INF/maven/.../pom.properties` — and its version is compared against a
+built-in target-version table taken verbatim from the project's
+**LibraryUpgradeList** (28 rows — every library that has a planned upgrade
+version; entries without one, e.g. `spring-web` or `spring-xml`, are not
+version-checked). Examples: `spring-core ≥ 6.2.11`, `spring-webflux ≥ 6.1.14`,
+`netty-codec ≥ 4.1.135.Final`, `jetty-http ≥ 12.0.33`, `log4j-core ≥ 2.25.4`,
+Bouncy Castle `*-jdk18on ≥ 1.85`, all `jackson-*` ≥ 2.18.9. Below
+target → `OUTDATED` row; at/above target → `OK`.
+
+The table is overridable at runtime via a `library-versions.properties` file
+placed next to the EffortAnalyzer JAR (or passed with `--library-versions=<file>`):
+
+```properties
+# adjust a built-in target
+spring-core=6.2.12
+# add a private artifact check (version:SEVERITY:Display name)
+acme-shared=3.4.1:HIGH:Acme Shared Libs
+# drop a built-in check
+disable.moment=true
+```
+
+Version comparison handles qualifiers such as `-SNAPSHOT`, `.Final`, `-jre`,
+`v20241219`, and vendor suffixes (`-redhat-00002`, `-nc`, `-r136`) without
+false "outdated" alarms.
+
+#### Report sheets (6 total)
+
+| Sheet | Contents |
+|-------|---------|
+| **📋 Instructions** | How to read and act on the report |
+| **📊 Summary** | Total findings by library and severity; outdated-library counts; JARs scanned; active rule count |
+| **📦 Library Issues** | Full detail table: JAR, source file, line, library, deprecated API, replacement, severity — sorted CRITICAL first |
+| **✅ Remediation Checklist** | Deduplicated action items sorted by severity — one row per unique API change, with a Done? checkbox |
+| **⏱ Effort Analysis** | Estimated remediation hours per JAR with subtotals and grand total |
+| **🔢 Library Versions** | Every rule-matched bundled artifact: detected vs. target version, OUTDATED/OK status, severity and upgrade action |
+
+**Required argument:** `--input=<path>` — path to a JAR/WAR/EAR or directory  
+**Optional:** `--library-versions=<file>` — custom version target table  
+**Default output:** `WL15-Migration-Report.xlsx`
+
+```bat
+:: Windows
+run.bat wl15  C:\apps\lib  WL15-Migration-Report.xlsx
+
+:: Unix
+./run.sh wl15 /opt/app/lib  WL15-Migration-Report.xlsx
+
+:: Direct invocation
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl15 --input=/opt/app/lib
+```
+
+---
+
+### `wl14` — WebLogic 14 Library Migration
+
+Runs the **same check set as `wl15`** — the full API compatibility scan plus the
+bundled-library version checks — and writes the identical 6-sheet report with
+the **WL14** label. Useful when the migration target is WebLogic 14 but the
+same hardened library versions are required.
+
+**Required argument:** `--input=<path>` — path to a JAR/WAR/EAR or directory  
+**Optional:** `--library-versions=<file>` — custom version target table  
+**Default output:** `WL14-Migration-Report.xlsx`
+
+```bat
+:: Windows
+run.bat wl14  C:\apps\lib  WL14-Migration-Report.xlsx
+
+:: Direct invocation
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl14 --input=/opt/app/lib
+```
+
+---
+
 ### `wl-jboss26` — WebLogic → WildFly 26
 
 Scans JARs / WARs / EARs for patterns that need attention when migrating from
@@ -201,9 +313,33 @@ src/main/java/effortanalyzer/
 │   └── TicketComponentMerger.java  # JIRA ticket ↔ component merger
 ├── upgrade/
 │   └── UpgradeAnalyzer.java        # upgrade orchestrator: IBM scanner + Spring scan + 6-sheet report
-├── spring/
-│   ├── SpringDeprecationAnalyzer.java  # Spring / Guava / Guice / CGLib scanner
-│   └── SpringDeprecationRules.java     # Library deprecation rules
+├── library/
+│   ├── LibraryUpgradeAnalyzer.java # Core JAR scanner + Excel report generator (shared by upgrade & wl15)
+│   ├── LibraryUpgradeRules.java    # upgrade rule aggregator
+│   ├── DeprecatedApi.java          # Rule record type
+│   ├── SpringRules.java            # Spring 5.3.39 rules
+│   ├── GuavaRules.java             # Guava 31.1 rules
+│   ├── GuiceRules.java             # Guice 5.1.0 rules
+│   ├── JerseyRules.java            # Jersey 1.x → 2.x rules
+│   └── CglibRules.java             # CGLib → ByteBuddy rules
+├── wl15/
+│   ├── Wl15Analyzer.java           # wl15 orchestrator: API scan + version scan + report
+│   ├── Wl15ReportWriter.java       # 6-sheet Excel report (Instructions/Summary/Issues/Checklist/Effort/Versions)
+│   ├── Wl15LibraryRules.java       # wl15 rule aggregator
+│   ├── Spring6Rules.java           # Spring 6.2.11 / Security 6.5.9 rules
+│   ├── Jackson218Rules.java        # Jackson 2.18.9 rules
+│   ├── Netty4Rules.java            # Netty 4.1.135 rules
+│   ├── Log4j225Rules.java          # Log4j 2.25.4 rules
+│   ├── Jetty12Rules.java           # Jetty 12.0.33 rules
+│   ├── JasperReports7Rules.java    # JasperReports 7.0.4 rules
+│   └── Wl15MiscRules.java          # EhCache 3, commons-*, hibernate-validator, c3p0, MINA, Nimbus, OWASP, ...
+├── wl14/
+│   └── Wl14Analyzer.java           # wl14 orchestrator: reuses WL15 API rules + version checks, WL14 report identity
+├── version/
+│   ├── LibraryVersionRule.java     # Version-check rule record (exact or prefix artifact match)
+│   ├── LibraryVersionRules.java    # Built-in 28-row LibraryUpgradeList target table + properties overrides
+│   ├── LibraryVersionAnalyzer.java # Archive scanner: detects bundled libs by name / pom.properties, flags OUTDATED
+│   └── VersionComparator.java      # Lenient version comparison (SNAPSHOT, .Final, -jre, v-prefixes, vendor suffixes)
 ├── wljboss/
 │   ├── WlJBossAnalyzer.java        # WebLogic → JBoss/WildFly scanner
 │   ├── WlJBossRules.java           # Migration rules + TargetProfile enum
@@ -321,6 +457,10 @@ Edit `src/main/resources/log4j2.xml` to customise.
 
 ### v2.0.0 (current)
 
+- **`wl15` module** — new WebLogic 15 Library Migration analyzer covering 16+ library upgrades
+  (Spring 6, Spring Security 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, JasperReports 7,
+  EhCache 3, and more); produces a 4-sheet Excel report with Summary, All Findings,
+  Critical & High, and a deduplicated **Checklist** sheet for migration planning
 - **`upgrade` module** — orchestrates IBM WAMT (`binaryAppScanner.jar`) for Java 21 JVM
   analysis + built-in Spring/Guava/Guice/Jersey/CGLib scan in a single run; produces a
   6-sheet Excel report with an Instructions sheet, component Summary, Java 21 Issues
@@ -356,6 +496,7 @@ Edit `src/main/resources/log4j2.xml` to customise.
 | `☕ Java 21 Issues` sheet is empty | IBM scanner was not found — see above |
 | `Unknown module: 'spring'` | Use `--module=upgrade` instead |
 | `Unknown module: 'java21'` | Use `--module=upgrade` instead |
+| `wl15` report is empty | Verify `--input` points to JARs containing Java source compiled against the affected libraries |
 | Report not created — file locked | Close the output `.xlsx` in Excel first |
 | Report not created — directory missing | Create the output directory manually |
 | Java not found | Ensure Java 21+ is on `PATH` or set `JAVA_HOME` |

@@ -101,6 +101,37 @@ class AppConfigTest {
     }
 
     @Test
+    void defaultOutputForWl15Module() {
+        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl15"});
+        assertEquals("WL15-Migration-Report.xlsx", cfg.getOutputFile());
+    }
+
+    @Test
+    void defaultOutputForWl14Module() {
+        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl14"});
+        assertEquals("WL14-Migration-Report.xlsx", cfg.getOutputFile());
+    }
+
+    @Test
+    void validatePassesForWl14WithExistingInput(@TempDir Path tmpDir) {
+        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl14", "--input=" + tmpDir});
+        assertEquals("", cfg.validate());
+    }
+
+    @Test
+    void validateFailsForWl14WithoutInput() {
+        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl14"});
+        assertFalse(cfg.validate().isEmpty());
+    }
+
+    @Test
+    void libraryVersionsFileArgumentIsParsed() {
+        AppConfig cfg = AppConfig.parse(new String[]{
+                "--module=wl15", "--library-versions=C:\\custom\\library-versions.properties"});
+        assertEquals("C:\\custom\\library-versions.properties", cfg.getLibraryVersionsFile());
+    }
+
+    @Test
     void explicitOutputOverridesDefault() {
         AppConfig cfg = AppConfig.parse(new String[]{"--module=upgrade", "--output=my-report.xlsx"});
         assertEquals("my-report.xlsx", cfg.getOutputFile());

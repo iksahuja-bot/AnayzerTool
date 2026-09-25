@@ -1,0 +1,66 @@
+# ============================================================================
+# EffortAnalyzer — Effort Override Configuration
+# ============================================================================
+#
+# HOW TO USE
+# ----------
+# 1. Copy this file to the same folder as EffortAnalyzer-*-shaded.jar
+# 2. Rename it to:  effort-overrides.properties
+# 3. Uncomment and edit the entries you want to change.
+# 4. Re-run EffortAnalyzer -- changes take effect immediately (no rebuild needed).
+#
+# All entries are OPTIONAL. Any property you omit keeps its built-in default.
+#
+# Built-in defaults:
+#   CRITICAL / HIGH   : base 2.0 h + 0.50 h/file  (cap 20 h)
+#   MEDIUM  / WARNING : base 1.0 h + 0.25 h/file  (cap 12 h)
+#   LOW     / INFO    : flat 0.25 h  (file count ignored)
+#
+# Formula applied per issue:
+#   effort = min(cap, base + max(1, files) x perFile)
+#
+# ============================================================================
+
+
+# -- Per-severity scale overrides ---------------------------------------------
+#
+# Recognised severities: CRITICAL  HIGH  MEDIUM  WARNING  LOW  INFO
+# Each field is independent -- set only the fields you need.
+
+# effort.CRITICAL.base=2.0
+# effort.CRITICAL.perFile=0.50
+# effort.CRITICAL.cap=20.0
+
+# effort.HIGH.base=1.0
+# effort.HIGH.perFile=0.25
+# effort.HIGH.cap=12.0
+
+# effort.MEDIUM.base=1.0
+# effort.MEDIUM.perFile=0.25
+# effort.MEDIUM.cap=12.0
+
+# effort.WARNING.base=1.0
+# effort.WARNING.perFile=0.25
+# effort.WARNING.cap=12.0
+
+# effort.LOW.base=0.25
+# effort.LOW.perFile=0.0
+# effort.LOW.cap=0.25
+
+# effort.INFO.base=0.25
+# effort.INFO.perFile=0.0
+# effort.INFO.cap=0.25
+
+
+# -- Flat per-rule / per-API overrides ----------------------------------------
+#
+# When a rule key matches, the given value (hours) is used directly and the
+# formula above is NOT applied. Keys are matched case-insensitively.
+#
+# WL-JBoss module -- key = API pattern  (e.g. javax/ejb/EJBHome)
+# Upgrade module  -- key = IBM rule ID  (e.g. javax/jms/TopicConnectionFactory)
+#                    or library API     (e.g. org/springframework/...#method)
+
+# override.java/lang/System#exit=8.0
+# override.javax/ejb/EJBHome=6.0
+# override.WLJBOSS-001=5.0

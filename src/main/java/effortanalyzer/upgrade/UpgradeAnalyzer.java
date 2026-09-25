@@ -1039,7 +1039,7 @@ public class UpgradeAnalyzer {
      * Library findings: deduplicated per unique (class + method) per JAR (files = distinct source files).
      */
     private void writeEffortSheet(Workbook wb, Styles s) {
-        Sheet sheet = wb.createSheet("Effort Analysis");
+        Sheet sheet = wb.createSheet("⏱ Effort Analysis");
         sheet.setColumnWidth(0, 36 * 256);  // Component / JAR
         sheet.setColumnWidth(1, 42 * 256);  // Issue / Rule / API
         sheet.setColumnWidth(2, 18 * 256);  // Type
@@ -1079,23 +1079,8 @@ public class UpgradeAnalyzer {
         cellH(hRow, s.colHeader, 3, "Severity");
         cellH(hRow, s.colHeader, 4, "Files / Classes Affected");
         cellH(hRow, s.colHeader, 5, "Effort (h)");
+        sheet.setAutoFilter(new CellRangeAddress(r - 1, r - 1, 0, 5));
         sheet.createFreezePane(0, r);
-
-        // Local styles for subtotal and grand-total rows
-        CellStyle subtotalStyle = wb.createCellStyle();
-        subtotalStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
-        subtotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        Font stFont = wb.createFont();
-        stFont.setBold(true);
-        subtotalStyle.setFont(stFont);
-
-        CellStyle grandTotalStyle = wb.createCellStyle();
-        grandTotalStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
-        grandTotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        Font gtFont = wb.createFont();
-        gtFont.setBold(true);
-        gtFont.setColor(IndexedColors.WHITE.getIndex());
-        grandTotalStyle.setFont(gtFont);
 
         // Collect all unique component keys (IBM keys + library JAR basenames)
         Set<String> allKeys = new LinkedHashSet<>(ibmFindingsByComponent.keySet());
@@ -1156,6 +1141,8 @@ public class UpgradeAnalyzer {
                 compTotal += effort;
 
                 Row row = sheet.createRow(r++);
+                row.setHeightInPoints(18);
+
                 row.createCell(0).setCellValue(f.component());
 
                 Cell issueCell = row.createCell(1);
@@ -1170,7 +1157,10 @@ public class UpgradeAnalyzer {
                 if (sevStyle != null) sevCell.setCellStyle(sevStyle);
 
                 row.createCell(4).setCellValue(fileCount);
-                row.createCell(5).setCellValue(effort);
+
+                Cell effortCell = row.createCell(5);
+                effortCell.setCellValue(effort);
+                effortCell.setCellStyle(s.effortNum);
             }
 
             // Library findings (deduplicated, sorted by severity) — files = distinct source files
@@ -1185,6 +1175,8 @@ public class UpgradeAnalyzer {
                 compTotal += effort;
 
                 Row row = sheet.createRow(r++);
+                row.setHeightInPoints(18);
+
                 row.createCell(0).setCellValue(key);
 
                 String api = (f.methodName() != null && !f.methodName().isBlank())
@@ -1202,7 +1194,10 @@ public class UpgradeAnalyzer {
                 if (sevStyle != null) sevCell.setCellStyle(sevStyle);
 
                 row.createCell(4).setCellValue(fileCount);
-                row.createCell(5).setCellValue(effort);
+
+                Cell effortCell = row.createCell(5);
+                effortCell.setCellValue(effort);
+                effortCell.setCellStyle(s.effortNum);
             }
 
             // Subtotal row for this component
@@ -1211,11 +1206,11 @@ public class UpgradeAnalyzer {
             Row subtotalRow = sheet.createRow(r++);
             Cell stLabel = subtotalRow.createCell(0);
             stLabel.setCellValue("Subtotal — " + key);
-            stLabel.setCellStyle(subtotalStyle);
+            stLabel.setCellStyle(s.subtotalRowStyle);
             sheet.addMergedRegion(new CellRangeAddress(subtotalIdx, subtotalIdx, 0, 4));
             Cell stValue = subtotalRow.createCell(5);
             stValue.setCellValue(compTotal);
-            stValue.setCellStyle(subtotalStyle);
+            stValue.setCellStyle(s.subtotalValueStyle);
 
             r++; // blank row between components
         }
@@ -1225,11 +1220,11 @@ public class UpgradeAnalyzer {
         Row grandTotalRow = sheet.createRow(r);
         Cell gtLabel = grandTotalRow.createCell(0);
         gtLabel.setCellValue("GRAND TOTAL — All Components");
-        gtLabel.setCellStyle(grandTotalStyle);
+        gtLabel.setCellStyle(s.grandTotalRowStyle);
         sheet.addMergedRegion(new CellRangeAddress(grandTotalIdx, grandTotalIdx, 0, 4));
         Cell gtValue = grandTotalRow.createCell(5);
         gtValue.setCellValue(grandTotal);
-        gtValue.setCellStyle(grandTotalStyle);
+        gtValue.setCellStyle(s.grandTotalValueStyle);
     }
 
     /**
@@ -1351,6 +1346,13 @@ public class UpgradeAnalyzer {
         final CellStyle infoBar;
         private final Map<String, CellStyle> sevStyles = new HashMap<>();
 
+        // Effort Analysis sheet styles
+        final CellStyle effortNum;            // right-aligned, one-decimal format
+        final CellStyle subtotalRowStyle;     // grey bg + bold — subtotal label
+        final CellStyle subtotalValueStyle;   // grey bg + bold + right-align + 0.0 format
+        final CellStyle grandTotalRowStyle;   // dark blue + white bold — grand total label
+        final CellStyle grandTotalValueStyle; // dark blue + white bold + right-align + 0.0 format
+
         CellStyle severityStyle(String severity) {
             return sevStyles.get(severity);
         }
@@ -1407,6 +1409,44 @@ public class UpgradeAnalyzer {
                 cs.setFont(sevFont);
                 sevStyles.put(sev, cs);
             }
+
+            // ── Effort Analysis sheet styles ───────────────────────────────────
+            DataFormat df        = wb.createDataFormat();
+            short      oneDecFmt = df.getFormat("0.0");
+
+            effortNum = wb.createCellStyle();
+            effortNum.setAlignment(HorizontalAlignment.RIGHT);
+            effortNum.setDataFormat(oneDecFmt);
+
+            subtotalRowStyle = wb.createCellStyle();
+            subtotalRowStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            subtotalRowStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Font stLFont = wb.createFont(); stLFont.setBold(true);
+            subtotalRowStyle.setFont(stLFont);
+
+            subtotalValueStyle = wb.createCellStyle();
+            subtotalValueStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            subtotalValueStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            subtotalValueStyle.setAlignment(HorizontalAlignment.RIGHT);
+            subtotalValueStyle.setDataFormat(oneDecFmt);
+            Font stVFont = wb.createFont(); stVFont.setBold(true);
+            subtotalValueStyle.setFont(stVFont);
+
+            grandTotalRowStyle = wb.createCellStyle();
+            grandTotalRowStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            grandTotalRowStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Font gtLFont = wb.createFont();
+            gtLFont.setBold(true); gtLFont.setColor(IndexedColors.WHITE.getIndex());
+            grandTotalRowStyle.setFont(gtLFont);
+
+            grandTotalValueStyle = wb.createCellStyle();
+            grandTotalValueStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            grandTotalValueStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            grandTotalValueStyle.setAlignment(HorizontalAlignment.RIGHT);
+            grandTotalValueStyle.setDataFormat(oneDecFmt);
+            Font gtVFont = wb.createFont();
+            gtVFont.setBold(true); gtVFont.setColor(IndexedColors.WHITE.getIndex());
+            grandTotalValueStyle.setFont(gtVFont);
         }
     }
 }

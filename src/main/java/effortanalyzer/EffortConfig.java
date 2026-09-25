@@ -63,6 +63,11 @@ public final class EffortConfig {
         return result != null ? result : new Double[3];
     }
 
+    /** Package-private factory used by tests to build an instance from pre-built Properties. */
+    static EffortConfig from(Properties props) {
+        return parse(props);
+    }
+
     private static EffortConfig load() {
         Properties props = new Properties();
         Path file = resolveFile();

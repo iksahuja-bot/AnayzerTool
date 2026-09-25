@@ -63,6 +63,18 @@ public class LibraryUpgradeAnalyzer {
                 .toList();
     }
 
+    /**
+     * Constructor used by {@code Wl15Analyzer} and future modules to inject an external rule set.
+     * The caller is responsible for assembling the complete list of {@link DeprecatedApi} rules.
+     */
+    public LibraryUpgradeAnalyzer(List<DeprecatedApi> externalRules) {
+        this.rules = null;
+        this.findings = new LinkedHashMap<>();
+        this.compiledApis = externalRules.stream()
+                .map(CompiledApi::of)
+                .toList();
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     //  Analysis
     // ══════════════════════════════════════════════════════════════════════════
@@ -732,7 +744,7 @@ public class LibraryUpgradeAnalyzer {
     }
 
     public int getActiveRuleCount() {
-        return rules.getRules().size();
+        return compiledApis.size();
     }
 
     /** A single finding: one deprecated API usage in one JAR entry. */

@@ -983,23 +983,9 @@ public class WlJBossReportWriter {
             c.setCellValue(headers[i]);
             c.setCellStyle(s.header);
         }
+        // Add auto-filter so the user can filter by severity / category / JAR
+        sheet.setAutoFilter(new CellRangeAddress(r - 1, r - 1, 0, headers.length - 1));
         sheet.createFreezePane(0, r);
-
-        // ── Local styles for subtotal and grand-total rows ─────────────────────
-        CellStyle subtotalStyle = wb.createCellStyle();
-        subtotalStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
-        subtotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        Font stFont = wb.createFont();
-        stFont.setBold(true);
-        subtotalStyle.setFont(stFont);
-
-        CellStyle grandTotalStyle = wb.createCellStyle();
-        grandTotalStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
-        grandTotalStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        Font gtFont = wb.createFont();
-        gtFont.setBold(true);
-        gtFont.setColor(IndexedColors.WHITE.getIndex());
-        grandTotalStyle.setFont(gtFont);
 
         // ── Developer code findings only (skip WL generated stubs) ────────────
         List<WlJBossAnalyzer.Finding> devFindings = findings.stream()
@@ -1042,21 +1028,32 @@ public class WlJBossReportWriter {
             double jarTotal = 0.0;
 
             for (WlJBossAnalyzer.Finding f : sorted) {
-                int   fileCount = f.affectedFiles.size();
-                double effort   = effortHours(f.rule.apiPattern(), f.rule.severity(), fileCount);
+                int    fileCount = f.affectedFiles.size();
+                double effort    = effortHours(f.rule.apiPattern(), f.rule.severity(), fileCount);
                 jarTotal += effort;
 
                 Row row = sheet.createRow(r++);
+                row.setHeightInPoints(18);
+
                 row.createCell(0).setCellValue(f.jarName);
-                row.createCell(1).setCellValue(f.rule.apiPattern());
-                row.createCell(2).setCellValue(f.rule.category());
+
+                Cell apiCell = row.createCell(1);
+                apiCell.setCellValue(f.rule.apiPattern());
+                apiCell.setCellStyle(s.playbookWrap);  // wrap for long API patterns
+
+                Cell catCell = row.createCell(2);
+                catCell.setCellValue(f.rule.category());
+                catCell.setCellStyle(s.playbookWrap);
 
                 Cell sevCell = row.createCell(3);
                 sevCell.setCellValue(f.rule.severity());
                 sevCell.setCellStyle(s.severityStyle(f.rule.severity()));
 
                 row.createCell(4).setCellValue(fileCount);
-                row.createCell(5).setCellValue(effort);
+
+                Cell effortCell = row.createCell(5);
+                effortCell.setCellValue(effort);
+                effortCell.setCellStyle(s.effortNum);
             }
 
             // Subtotal row for this JAR
@@ -1065,11 +1062,11 @@ public class WlJBossReportWriter {
             Row subtotalRow = sheet.createRow(r++);
             Cell stLabel = subtotalRow.createCell(0);
             stLabel.setCellValue("Subtotal — " + jarName);
-            stLabel.setCellStyle(subtotalStyle);
+            stLabel.setCellStyle(s.subtotalRowStyle);
             sheet.addMergedRegion(new CellRangeAddress(subtotalIdx, subtotalIdx, 0, 4));
             Cell stValue = subtotalRow.createCell(5);
             stValue.setCellValue(jarTotal);
-            stValue.setCellStyle(subtotalStyle);
+            stValue.setCellStyle(s.subtotalValueStyle);
 
             r++; // blank row between JARs
         }
@@ -1079,11 +1076,11 @@ public class WlJBossReportWriter {
         Row grandTotalRow = sheet.createRow(r);
         Cell gtLabel = grandTotalRow.createCell(0);
         gtLabel.setCellValue("GRAND TOTAL — All Components");
-        gtLabel.setCellStyle(grandTotalStyle);
+        gtLabel.setCellStyle(s.grandTotalRowStyle);
         sheet.addMergedRegion(new CellRangeAddress(grandTotalIdx, grandTotalIdx, 0, 4));
         Cell gtValue = grandTotalRow.createCell(5);
         gtValue.setCellValue(grandTotal);
-        gtValue.setCellStyle(grandTotalStyle);
+        gtValue.setCellStyle(s.grandTotalValueStyle);
     }
 
     /**
@@ -1178,6 +1175,13 @@ public class WlJBossReportWriter {
         final CellStyle playbookNote;          // INFO / NOTE row (light blue)
         final CellStyle playbookDone;          // "Already done" row (light green)
         final CellStyle playbookWrap;          // plain wrap-text style for wide cells
+
+        // Effort Analysis sheet styles
+        final CellStyle effortNum;             // right-aligned, one-decimal format for effort values
+        final CellStyle subtotalRowStyle;      // grey bg + bold — subtotal label cell
+        final CellStyle subtotalValueStyle;    // grey bg + bold + right-align + 0.0 format — subtotal value
+        final CellStyle grandTotalRowStyle;    // dark blue + white bold — grand total label
+        final CellStyle grandTotalValueStyle;  // dark blue + white bold + right-align + 0.0 format
 
         StyleSet(Workbook wb) {
             // Title style
@@ -1316,6 +1320,44 @@ public class WlJBossReportWriter {
             playbookWrap = wb.createCellStyle();
             playbookWrap.setWrapText(true);
             playbookWrap.setVerticalAlignment(VerticalAlignment.TOP);
+
+            // ── Effort Analysis sheet styles ───────────────────────────────────
+            DataFormat df       = wb.createDataFormat();
+            short      oneDecFmt = df.getFormat("0.0");
+
+            effortNum = wb.createCellStyle();
+            effortNum.setAlignment(HorizontalAlignment.RIGHT);
+            effortNum.setDataFormat(oneDecFmt);
+
+            subtotalRowStyle = wb.createCellStyle();
+            subtotalRowStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            subtotalRowStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Font stLabelFont = wb.createFont(); stLabelFont.setBold(true);
+            subtotalRowStyle.setFont(stLabelFont);
+
+            subtotalValueStyle = wb.createCellStyle();
+            subtotalValueStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            subtotalValueStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            subtotalValueStyle.setAlignment(HorizontalAlignment.RIGHT);
+            subtotalValueStyle.setDataFormat(oneDecFmt);
+            Font stValueFont = wb.createFont(); stValueFont.setBold(true);
+            subtotalValueStyle.setFont(stValueFont);
+
+            grandTotalRowStyle = wb.createCellStyle();
+            grandTotalRowStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            grandTotalRowStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Font gtLabelFont = wb.createFont();
+            gtLabelFont.setBold(true); gtLabelFont.setColor(IndexedColors.WHITE.getIndex());
+            grandTotalRowStyle.setFont(gtLabelFont);
+
+            grandTotalValueStyle = wb.createCellStyle();
+            grandTotalValueStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            grandTotalValueStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            grandTotalValueStyle.setAlignment(HorizontalAlignment.RIGHT);
+            grandTotalValueStyle.setDataFormat(oneDecFmt);
+            Font gtValueFont = wb.createFont();
+            gtValueFont.setBold(true); gtValueFont.setColor(IndexedColors.WHITE.getIndex());
+            grandTotalValueStyle.setFont(gtValueFont);
         }
     }
 }

@@ -15,7 +15,7 @@ import java.util.*;
  *
  * ── Supported CLI arguments ──────────────────────────────────────────────────
  *
- *   --module=<name>          Module to run: upgrade | analyze | merge | wl-jboss26 | wl-jboss27
+ *   --module=<name>          Module to run: upgrade | wl15 | analyze | merge | wl-jboss26 | wl-jboss27
  *   --input=<path>           Input JAR/WAR/EAR or directory
  *   --output=<file>          Output Excel file path
  *   --config=<file>          Path to a custom properties file
@@ -55,6 +55,19 @@ public class AppConfig {
      * Exclusions are controlled via {@code upgrade-excluded-rules.txt}.
      */
     public static final String MODULE_UPGRADE    = "upgrade";
+    /**
+     * WebLogic 15 library migration module.
+     * Scans JARs for API compatibility issues across the WL15 library upgrade set
+     * (Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3, and more).
+     * Produces a 4-sheet Excel report with a Checklist sheet for migration planning.
+     */
+    public static final String MODULE_WL15       = "wl15";
+    /**
+     * WebLogic 14 library migration module.
+     * Runs the same API compatibility and library version checks as wl15,
+     * producing the report with WL14 identity.
+     */
+    public static final String MODULE_WL14       = "wl14";
 
     private static final String VERSION = "2.0.0";
 
@@ -81,6 +94,9 @@ public class AppConfig {
 
     // upgrade — IBM scanner
     private String  ibmScannerJar;
+
+    // wl15 / wl14 — library version checks
+    private String  libraryVersionsFile;
 
     // meta
     private boolean helpRequested;
@@ -198,6 +214,7 @@ public class AppConfig {
             case "target"          -> resolved.put("wljboss.target",            value);
             case "excluded-rules"  -> resolved.put("analyzer.excluded.rules",   value);
             case "ibm-scanner"     -> resolved.put("analyzer.ibm.scanner.jar",  value);
+            case "library-versions" -> resolved.put("library.versions.file",    value);
             case "config"          -> { /* already handled in first pass */ }
             default                -> System.err.println("Warning: unknown argument --" + key);
         }
@@ -217,6 +234,7 @@ public class AppConfig {
         jarListFile    = get("wl.jar.list.file",          "");
         wljbossTarget  = get("wljboss.target",            "wildfly27-java21");
         ibmScannerJar  = get("analyzer.ibm.scanner.jar",  "");
+        libraryVersionsFile = get("library.versions.file", "");
 
         // Apply module-specific output defaults when no --output was provided
         if (outputFile.isBlank()) {
@@ -227,6 +245,8 @@ public class AppConfig {
                 case MODULE_WL_JBOSS27 -> "WlToJBoss-WildFly27-Report.xlsx";
                 case MODULE_WL_JBOSS   -> "WlToJBossMigrationReport.xlsx";
                 case MODULE_UPGRADE    -> "Upgrade-Compatibility-Report.xlsx";
+                case MODULE_WL15       -> "WL15-Migration-Report.xlsx";
+                case MODULE_WL14       -> "WL14-Migration-Report.xlsx";
                 default                -> "output.xlsx";
             };
         }
@@ -247,7 +267,7 @@ public class AppConfig {
     public String validate() {
         if (module.isBlank()) {
             return "No module specified. Use --module=<name> or set 'module' in analyzer.properties.\n"
-                 + "Available modules: upgrade | analyze | merge | wl-jboss26 | wl-jboss27";
+                 + "Available modules: upgrade | wl15 | wl14 | analyze | merge | wl-jboss26 | wl-jboss27";
         }
 
         return switch (module) {
@@ -266,7 +286,7 @@ public class AppConfig {
                 yield missing.isEmpty() ? "" : "merge: " + String.join(", ", missing);
             }
 
-            case MODULE_WL_JBOSS, MODULE_WL_JBOSS26, MODULE_WL_JBOSS27, MODULE_UPGRADE -> {
+            case MODULE_WL_JBOSS, MODULE_WL_JBOSS26, MODULE_WL_JBOSS27, MODULE_UPGRADE, MODULE_WL15, MODULE_WL14 -> {
                 if (inputPath.isBlank() && jarListFile.isBlank()) {
                     yield module + ": --input=<jar-or-directory> is required "
                         + "(or set input.path / wl.jar.list.file in analyzer.properties)";
@@ -281,7 +301,7 @@ public class AppConfig {
             }
 
             default -> "Unknown module: '" + module
-                     + "'. Available: upgrade | analyze | merge | wl-jboss26 | wl-jboss27";
+                     + "'. Available: upgrade | wl15 | wl14 | analyze | merge | wl-jboss26 | wl-jboss27";
         };
     }
 
@@ -296,6 +316,9 @@ public class AppConfig {
         System.out.println("Modules:");
         System.out.println("  upgrade     Java 21 JVM + Spring/Guava/Guice/CGLib library upgrade scan");
         System.out.println("                Exclusions: edit upgrade-excluded-rules.txt");
+        System.out.println("  wl15        WebLogic 15 library migration scan");
+        System.out.println("                Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3 and more");
+        System.out.println("  wl14        WebLogic 14 library migration scan (same check set as wl15)");
         System.out.println("  analyze     Analyze JSON migration reports (IBM TA format)");
         System.out.println("  merge       Merge ticket report with component list");
         System.out.println("  wl-jboss26  WebLogic → WildFly 26 / JBoss EAP 7.4  (Java 8,  javax.*)");
@@ -337,8 +360,23 @@ public class AppConfig {
         System.out.println("  --ibm-scanner=<path>     Path to binaryAppScanner.jar (default: auto-detect)");
         System.out.println("  --output=<file>          Output (default: Upgrade-Compatibility-Report.xlsx)");
         System.out.println();
-        System.out.println("Module: wl-jboss26");
-        System.out.println("  Target: WildFly 26 / JBoss EAP 7.4 – Java 8 – Jakarta EE 8 (javax.*)");
+        System.out.println("Module: wl15");
+        System.out.println("  Scans for API compatibility issues across the WL15 library upgrade set:");
+        System.out.println("  Spring 6.2.11 / Spring Security 6.5.9 / Jetty 12.0.33 / Jackson 2.18.9");
+        System.out.println("  Netty 4.1.135 / Log4j 2.25.4 / JasperReports 7.0.4 / EhCache 3.11.1");
+        System.out.println("  commons-fileupload 1.6 / hibernate-validator 6.2 / c3p0 0.12 / MINA 2.0.28");
+        System.out.println("  nimbus-jose-jwt 9.37 / OWASP HTML Sanitizer / and more");
+        System.out.println("  --input=<path>           JAR/WAR/EAR or directory (required)");
+        System.out.println("  --output=<file>          Output (default: WL15-Migration-Report.xlsx)");
+        System.out.println("  --library-versions=<file> Custom library-versions.properties target table (optional)");
+        System.out.println("                           Built-in targets overridable; also resolved next to the JAR");
+        System.out.println();
+        System.out.println("Module: wl14");
+        System.out.println("  Runs the same API compatibility and bundled-library version checks as wl15,");
+        System.out.println("  with the report labelled for WebLogic 14. See 'Module: wl15' for options.");
+        System.out.println("  --output=<file>          Output (default: WL14-Migration-Report.xlsx)");
+        System.out.println();
+        System.out.println("Module: wl-jboss26");        System.out.println("  Target: WildFly 26 / JBoss EAP 7.4 – Java 8 – Jakarta EE 8 (javax.*)");
         System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list given)");
         System.out.println("  --jar-list=<file>        Text file: one JAR path per line");
         System.out.println("  --output=<file>          Output (default: WlToJBoss-WildFly26-Report.xlsx)");
@@ -388,6 +426,7 @@ public class AppConfig {
     public String  getJarListFile()     { return jarListFile; }
     public String  getWlJBossTarget()   { return wljbossTarget; }
     public String  getIbmScannerJar()   { return ibmScannerJar; }
+    public String  getLibraryVersionsFile() { return libraryVersionsFile; }
     public boolean isHelpRequested()    { return helpRequested; }
     public boolean isVersionRequested() { return versionRequested; }
 
