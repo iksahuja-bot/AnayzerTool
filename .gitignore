@@ -1,0 +1,75 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+### EffortAnalyzer: build output & runtime artifacts ###
+target/
+logs/
+*.log
+
+### EffortAnalyzer: IDE / editor state ###
+.idea/
+.vscode/
+.cursor/
+.cursor-output/
+
+### EffortAnalyzer: Office temp/lock files ###
+~$*.xlsx
+~$*.xls
+~$*.docx
+
+### EffortAnalyzer: vendored third-party scanner binaries ###
+binaryAppScanner.jar
+binaryAppScannerInstaller.jar
+
+### EffortAnalyzer: generated / customer analysis reports (do not publish) ###
+reports/
+reports_baseline/
+reports_project/
+AnalyzerOutput*.xlsx
+UpgradeCompatibilityReport.xlsx
+Upgrade-Compatibility-Report*.xlsx
+SpringDeprecationReport.xlsx
+TicketReport.xlsx
+MergedOutput.xlsx
+MigrationWF2*.xlsx
+WlToJBoss*.xlsx
+WL15-Migration-Report.xlsx
+WL14-Migration-Report.xlsx
+report.xlsx
+report_wildfly27.xlsx
