@@ -64,8 +64,8 @@ public class AppConfig {
     public static final String MODULE_WL15       = "wl15";
     /**
      * WebLogic 14 library migration module.
-     * Runs the same API compatibility and library version checks as wl15,
-     * producing the report with WL14 identity.
+     * Runs the IBM Java 21 compatibility check first, then the same API compatibility
+     * and library version checks as wl15, producing the report with WL14 identity.
      */
     public static final String MODULE_WL14       = "wl14";
 
@@ -318,7 +318,7 @@ public class AppConfig {
         System.out.println("                Exclusions: edit upgrade-excluded-rules.txt");
         System.out.println("  wl15        WebLogic 15 library migration scan");
         System.out.println("                Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3 and more");
-        System.out.println("  wl14        WebLogic 14 library migration scan (same check set as wl15)");
+        System.out.println("  wl14        WebLogic 12c → 14.1.2 library/API migration scan (IBM Java 21 check first)");
         System.out.println("  analyze     Analyze JSON migration reports (IBM TA format)");
         System.out.println("  merge       Merge ticket report with component list");
         System.out.println("  wl-jboss26  WebLogic → WildFly 26 / JBoss EAP 7.4  (Java 8,  javax.*)");
@@ -372,9 +372,14 @@ public class AppConfig {
         System.out.println("                           Built-in targets overridable; also resolved next to the JAR");
         System.out.println();
         System.out.println("Module: wl14");
-        System.out.println("  Runs the same API compatibility and bundled-library version checks as wl15,");
-        System.out.println("  with the report labelled for WebLogic 14. See 'Module: wl15' for options.");
+        System.out.println("  First runs IBM binaryAppScanner.jar (auto-detected) for Java 21 compatibility.");
+        System.out.println("  Then scans for general library upgrade issues (Spring, Guava, Guice, Jersey, CGLib) plus");
+        System.out.println("  WebLogic 14.1.2-specific proprietary API removals (T3StartupDef, T3ShutdownDef,");
+        System.out.println("  MessageLogger, TrustManager, HostnameVerifier). Also checks bundled library versions.");
+        System.out.println("  --input=<path>           JAR/WAR/EAR or directory (required)");
         System.out.println("  --output=<file>          Output (default: WL14-Migration-Report.xlsx)");
+        System.out.println("  --library-versions=<file> Custom library-versions.properties target table (optional)");
+        System.out.println("                           Built-in targets overridable; also resolved next to the JAR");
         System.out.println();
         System.out.println("Module: wl-jboss26");        System.out.println("  Target: WildFly 26 / JBoss EAP 7.4 – Java 8 – Jakarta EE 8 (javax.*)");
         System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list given)");
@@ -401,6 +406,7 @@ public class AppConfig {
         System.out.println("  java -jar effortanalyzer.jar --module=analyze --parallel=false --output=out.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss26 --input=C:\\apps\\lib\\");
         System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss27 --jar-list=jars.txt --output=report.xlsx");
+        System.out.println("  java -jar effortanalyzer.jar --module=wl14 --input=C:\\apps\\lib\\");
         System.out.println("  java -jar effortanalyzer.jar --module=merge --ticket-file=t.xlsx --component-file=c.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --config=prod.properties");
         System.out.println();

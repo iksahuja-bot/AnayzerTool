@@ -10,7 +10,7 @@ A suite of analysis tools for migration planning, API deprecation detection, and
 |--------|-------------|-------|
 | [`upgrade`](#upgrade--upgrade-compatibility-analyzer) | Runs IBM WAMT (`binaryAppScanner.jar`) for Java 8→21 JVM compatibility + built-in Spring / Guava / Guice / Jersey / CGLib library scan. Produces a single 6-sheet Excel report. | JAR / WAR / EAR or directory |
 | [`wl15`](#wl15--weblogic-15-library-migration) | Scans JARs for API compatibility issues across the WL15 library upgrade set: Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3, JasperReports 7, and more — plus bundled-library **version checks** against the WL15 targets. Produces a 6-sheet Excel report with a Checklist and a Library Versions sheet. | JAR / WAR / EAR or directory |
-| [`wl14`](#wl14--weblogic-14-library-migration) | Runs the same API and library-version check set as `wl15`, with the report labelled for WebLogic 14. | JAR / WAR / EAR or directory |
+| [`wl14`](#wl14--weblogic-14-library-migration) | WebLogic 12c → 14.1.2 migration scan: IBM WAMT Java 21 compatibility check, general library upgrade rules (Spring, Guava, Guice, Jersey, CGLib), WL14-specific deprecated WebLogic APIs, plus bundled-library version checks. Produces a 7-sheet Excel report grouped by component. | JAR / WAR / EAR or directory |
 | [`wl-jboss26`](#wl-jboss26--weblogic--wildfly-26) | WebLogic → WildFly 26 / JBoss EAP 7.4 migration analysis (Java 8, `javax.*`) | JAR / WAR / EAR or directory |
 | [`wl-jboss27`](#wl-jboss27--weblogic--wildfly-27) | WebLogic → WildFly 27+ / JBoss EAP 8 migration analysis (Java 21, `jakarta.*`) | JAR / WAR / EAR or directory |
 | [`analyze`](#analyze--ibm-transformation-advisor-report-analyzer) | Consolidates IBM Transformation Advisor JSON reports into a grouped Excel workbook | Optional external JSON folder |
@@ -229,10 +229,14 @@ java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl15 --input=/opt/app/lib
 
 ### `wl14` — WebLogic 14 Library Migration
 
-Runs the **same check set as `wl15`** — the full API compatibility scan plus the
-bundled-library version checks — and writes the identical 6-sheet report with
-the **WL14** label. Useful when the migration target is WebLogic 14 but the
-same hardened library versions are required.
+WebLogic 12c → 14.1.2 migration scan. **Java 21 compatibility is a prerequisite:**
+the scan first runs the IBM WAMT `binaryAppScanner.jar` (if available) to detect
+Java SE API incompatibilities. It then runs the general library upgrade rules
+(Spring, Guava, Guice, Jersey, CGLib) together with WL14-specific WebLogic
+proprietary API rules (T3StartupDef, T3ShutdownDef, MessageLogger, TrustManager,
+HostnameVerifier), plus bundled-library version checks. The 7-sheet Excel report
+is labelled for **WL14** and includes the `☕ Java 21 Issues (IBM)` sheet; the
+Library Issues sheet is grouped by archive/component.
 
 **Required argument:** `--input=<path>` — path to a JAR/WAR/EAR or directory  
 **Optional:** `--library-versions=<file>` — custom version target table  

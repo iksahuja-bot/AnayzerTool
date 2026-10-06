@@ -8,6 +8,8 @@
 #
 #  USAGE (with arguments):
 #    ./run.sh upgrade    /app/lib  report.xlsx
+#    ./run.sh wl15       /app/lib  WL15-Migration-Report.xlsx
+#    ./run.sh wl14       /app/lib  WL14-Migration-Report.xlsx
 #    ./run.sh wl-jboss26 /app/lib  migration-wf26.xlsx
 #    ./run.sh wl-jboss27 /app/lib  migration-wf27.xlsx
 #    ./run.sh analyze    /path/to/json  ta-analysis.xlsx
@@ -217,7 +219,10 @@ interactive_menu() {
     echo "    [6]  WebLogic 15 Library Migration"
     echo "           Spring 6 / Jetty 12 / Jackson 2.18 / Netty 4.1 / Log4j 2.25 / EhCache 3 / ..."
     echo ""
-    echo "    [7]  Help"
+    echo "    [7]  WebLogic 14 Library Migration"
+    echo "           WebLogic 12 -> 14.1.2 API scan (IBM Java 21 check + deprecated WLS APIs + library versions)"
+    echo ""
+    echo "    [8]  Help"
     echo ""
     echo "    [Q]  Quit"
     echo ""
@@ -288,9 +293,16 @@ interactive_menu() {
         find_java; check_jar
         run_module "wl15" "$INPUT" "$OUTPUT"
         ;;
-      7|help|-h|--help) show_help ;;
+      7)
+        prompt "Path to JAR/WAR/EAR file or directory" "" INPUT
+        prompt "Output Excel file" "WL14-Migration-Report.xlsx" OUTPUT
+        confirm "wl14" "$INPUT" "$OUTPUT"
+        find_java; check_jar
+        run_module "wl14" "$INPUT" "$OUTPUT"
+        ;;
+      8|help|-h|--help) show_help ;;
       q|quit) exit 0 ;;
-      *) echo -e "${YELLOW}  [!] Invalid choice. Please enter 1-7 or Q.${RESET}" ;;
+      *) echo -e "${YELLOW}  [!] Invalid choice. Please enter 1-8 or Q.${RESET}" ;;
     esac
   done
 }
@@ -302,6 +314,7 @@ show_help() {
   echo "    ./run.sh                                   Launch interactive menu"
   echo "    ./run.sh upgrade    <input> [output]       Java 21 JVM + library upgrade scan"
   echo "    ./run.sh wl15       <input> [output]       WebLogic 15 library migration scan"
+  echo "    ./run.sh wl14       <input> [output]       WebLogic 12 to 14.1.2 API migration scan (IBM Java 21 check first)"
   echo "    ./run.sh wl-jboss26 <input> [output]       WebLogic to WildFly 26 / EAP 7.4 (Java 8)"
   echo "    ./run.sh wl-jboss27 <input> [output]       WebLogic to WildFly 27+ / EAP 8 (Java 21)"
   echo "    ./run.sh analyze    [input]  [output]       IBM TA report analysis (input = JSON dir)"
@@ -326,6 +339,12 @@ show_help() {
   echo "                  JasperReports 7.0.4 / EhCache 3.11.1 / and more"
   echo "                  Output: 4-sheet Excel (Summary + Findings + Critical & High + Checklist)"
   echo ""
+  echo "    wl14        WebLogic 12 -> 14.1.2 API migration scan:"
+  echo "                  First runs IBM binaryAppScanner.jar (auto-detected) for Java 21 compatibility."
+  echo "                  Then runs general library upgrade checks plus WebLogic 14 specific deprecated API checks"
+  echo "                  (T3StartupDef, T3ShutdownDef, MessageLogger, TrustManager, HostnameVerifier)"
+  echo "                  Output: 7-sheet Excel with WL14 identity and IBM Java 21 Issues sheet"
+  echo ""
   echo "    wl-jboss26  WebLogic migration targeting:"
   echo "                WildFly 26 / JBoss EAP 7.4  --  Java 8  --  javax.*"
   echo "                NO javax->jakarta namespace migration needed"
@@ -345,6 +364,7 @@ show_help() {
   echo "    ./run.sh upgrade    /opt/app/lib  Upgrade-Compatibility-Report.xlsx"
   echo "    ./run.sh upgrade    /opt/app/lib  (IBM scanner auto-detected from same folder)"
   echo "    ./run.sh wl15       /opt/app/lib  WL15-Migration-Report.xlsx"
+  echo "    ./run.sh wl14       /opt/app/lib  WL14-Migration-Report.xlsx"
   echo "    ./run.sh wl-jboss26 /opt/app/lib  WlToJBoss-WildFly26-Report.xlsx"
   echo "    ./run.sh wl-jboss27 /opt/app/lib  WlToJBoss-WildFly27-Report.xlsx"
   echo "    ./run.sh analyze    /opt/reports/json  AnalyzerOutput.xlsx"
@@ -364,7 +384,7 @@ case "${1:-}" in
   help|-h|--help)
     show_help
     ;;
-  upgrade|wl-jboss26|wl-jboss27|wl-jboss|wl15|analyze)
+  upgrade|wl-jboss26|wl-jboss27|wl-jboss|wl15|wl14|analyze)
     MODULE="${1}"; INPUT="${2:-}"; OUTPUT="${3:-}"
     find_java
     check_jar

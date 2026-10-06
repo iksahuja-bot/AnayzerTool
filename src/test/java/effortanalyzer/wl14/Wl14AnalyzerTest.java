@@ -1,5 +1,6 @@
 package effortanalyzer.wl14;
 
+import effortanalyzer.library.LibraryUpgradeAnalyzer;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
@@ -10,15 +11,18 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the WL14 module — it must run the same check set as WL15
- * (API scan + library version scan) and produce the 6-sheet report
- * carrying the WL14 identity.
+ * Tests for the WL14 module — runs a single combined library scan with the
+ * general {@code upgrade} library rules plus dedicated WebLogic 12c → 14c API
+ * rules, and bundled-library version checks. The output report still carries the
+ * WL14 identity.
  */
 class Wl14AnalyzerTest {
 
@@ -41,6 +45,8 @@ class Wl14AnalyzerTest {
         Wl14Analyzer analyzer = new Wl14Analyzer();
         analyzer.analyze(war.toString());
 
+        assertTrue(analyzer.getUpgradeAnalyzer().isAnalyzed(),
+                "WL14 combined library scan must complete successfully");
         assertEquals(1, analyzer.getVersionAnalyzer().countOutdated(),
                 "spring-core 5.3.20 must be flagged outdated by the version check");
 
@@ -50,13 +56,71 @@ class Wl14AnalyzerTest {
 
         try (FileInputStream fis = new FileInputStream(out.toFile());
              Workbook wb = new XSSFWorkbook(fis)) {
-            assertEquals(6, wb.getNumberOfSheets(), "WL14 report must have the same 6 sheets");
+            assertEquals(7, wb.getNumberOfSheets(),
+                    "WL14 report must have 7 sheets including the IBM Java 21 Issues sheet");
+            assertNotNull(wb.getSheet("☕ Java 21 Issues (IBM)"),
+                    "Java 21 Issues sheet expected for WL14");
             assertNotNull(wb.getSheet("🔢 Library Versions"), "Library Versions sheet expected");
             var versions = wb.getSheet("🔢 Library Versions");
             assertTrue(versions.getRow(0).getCell(0).getStringCellValue().startsWith("WL14"),
                     "versions sheet must carry the WL14 identity");
         }
     }
+
+    @Test
+    void wl14DetectsWebLogicSpecificDeprecatedApi(@TempDir Path tmp) throws IOException {
+        Path jar = tmp.resolve("legacy-weblogic.jar");
+        try (JarOutputStream jos = new JarOutputStream(Files.newOutputStream(jar))) {
+            jos.putNextEntry(new JarEntry("com/example/LegacyStartup.java"));
+            jos.write(("package com.example;\n"
+                    + "import weblogic.common.T3StartupDef;\n"
+                    + "public class LegacyStartup implements T3StartupDef {\n"
+                    + "    public String startup(String name, Map args) { return null; }\n"
+                    + "}\n").getBytes(StandardCharsets.UTF_8));
+            jos.closeEntry();
+        }
+
+        Wl14Analyzer analyzer = new Wl14Analyzer();
+        analyzer.analyze(jar.toString());
+
+        Map<String, List<LibraryUpgradeAnalyzer.Finding>> wl14Findings =
+                analyzer.getWl14ApiAnalyzer().getFindingsByJar();
+
+        assertFalse(wl14Findings.isEmpty(),
+                "WL14 combined scan must produce findings for deprecated WebLogic classes");
+
+        boolean foundT3Startup = wl14Findings.values().stream()
+                .flatMap(List::stream)
+                .anyMatch(f -> f.deprecatedClass().contains("T3StartupDef")
+                        && "WebLogic 14.1.2".equals(f.library()));
+        assertTrue(foundT3Startup,
+                "Expected finding for weblogic.common.T3StartupDef in WebLogic 14.1.2 library");
+    }
+
+    @Test
+    void wl14SpecificRuleDoesNotTriggerOnReplacementApi(@TempDir Path tmp) throws IOException {
+        Path jar = tmp.resolve("modern-weblogic.jar");
+        try (JarOutputStream jos = new JarOutputStream(Files.newOutputStream(jar))) {
+            jos.putNextEntry(new JarEntry("com/example/ModernListener.java"));
+            jos.write(("package com.example;\n"
+                    + "import weblogic.application.ApplicationLifecycleListener;\n"
+                    + "public class ModernListener extends ApplicationLifecycleListener {}\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            jos.closeEntry();
+        }
+
+        Wl14Analyzer analyzer = new Wl14Analyzer();
+        analyzer.analyze(jar.toString());
+
+        Map<String, List<LibraryUpgradeAnalyzer.Finding>> wl14Findings =
+                analyzer.getWl14ApiAnalyzer().getFindingsByJar();
+
+        assertFalse(wl14Findings.values().stream()
+                        .flatMap(List::stream)
+                        .anyMatch(f -> f.deprecatedClass().contains("T3StartupDef")),
+                "The replacement listener must not be flagged as T3StartupDef");
+    }
+
 
     @Test
     void libraryVersionsOverrideAppliesToWl14() throws IOException {

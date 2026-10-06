@@ -66,7 +66,7 @@ public class UpgradeAnalyzer {
 
     // ── IBM Finding record ────────────────────────────────────────────────────
 
-    record IbmFinding(
+    public record IbmFinding(
             String component,
             String ruleId,
             String ruleTitle,
@@ -79,11 +79,20 @@ public class UpgradeAnalyzer {
     // ── Constructor ───────────────────────────────────────────────────────────
 
     public UpgradeAnalyzer(String ibmScannerJar) {
+        this(ibmScannerJar, true);
+    }
+
+    /**
+     * @param ibmScannerJar      path to IBM binaryAppScanner.jar, or blank to disable IBM scan
+     * @param includeLibraryScan if false, the library-upgrade analyzer is not created;
+     *                           use this when another component (e.g. wl14) runs its own library scan
+     */
+    public UpgradeAnalyzer(String ibmScannerJar, boolean includeLibraryScan) {
         this.ibmScannerJar = ibmScannerJar != null ? ibmScannerJar.trim() : "";
         this.ibmScannerAvailable = !this.ibmScannerJar.isEmpty()
                 && Files.exists(Path.of(this.ibmScannerJar));
         this.excludedRules = loadAllExclusions();
-        this.spring = new LibraryUpgradeAnalyzer(excludedRules);
+        this.spring = includeLibraryScan ? new LibraryUpgradeAnalyzer(excludedRules) : null;
 
         logger.info("Exclusions active: {}", excludedRules.size());
         logger.info("IBM scanner available: {} ({})", ibmScannerAvailable, this.ibmScannerJar);
@@ -94,7 +103,8 @@ public class UpgradeAnalyzer {
      * Merges exclusions from {@code upgrade-excluded-rules.txt} with the 16
      * hardcoded IBM TA defaults (module 4 exclusions).
      */
-    private static Set<String> loadAllExclusions() {
+    /** Loads the full exclusion set used by the upgrade scan. Exposed for other modules (e.g. wl14). */
+    public static Set<String> loadAllExclusions() {
         Set<String> all = new HashSet<>(Java21Rules.loadExcludedRules());
         all.addAll(AnalyzerConfig.getDefaultExcludedRules()); // the 16 IBM TA defaults
         return Collections.unmodifiableSet(all);
@@ -103,13 +113,20 @@ public class UpgradeAnalyzer {
     // ── Public API ────────────────────────────────────────────────────────────
 
     public void analyze(String inputPath) throws IOException {
-        System.out.println("  [upgrade] Input: " + inputPath);
+        analyzeIbm(inputPath);
+        analyzeLibrary(inputPath);
+        analyzed = true;
+    }
 
-        // Phase 1 — IBM Java 21 compatibility scan
+    /** Runs only the IBM Java 21 compatibility scan (Phase 1). Exposed for WL14. */
+    public void analyzeIbm(String inputPath) throws IOException {
+        if (ibmFindingsByComponent.isEmpty() && !analyzed) {
+            System.out.println("  [upgrade] Input: " + inputPath);
+        }
         if (ibmScannerAvailable) {
             System.out.println("  [upgrade] Phase 1/2 — IBM binary scanner (Java 21 compatibility)...");
             Path jsonDir = runIbmScanner(inputPath);
-            System.out.println("  [upgrade]   Parsing IBM JSON results from: " + jsonDir);
+            System.out.println("  [upgrade]   Parsing IBM JSON results from:" + jsonDir);
             parseIbmOutput(jsonDir);
             System.out.println("  [upgrade]   IBM JSON reports kept at: " + jsonDir);
             System.out.println("  [upgrade]   IBM scan complete: "
@@ -117,14 +134,15 @@ public class UpgradeAnalyzer {
         } else {
             System.out.println("  [upgrade] Phase 1/2 — IBM scanner not found. Java 21 scan skipped.");
         }
+    }
 
-        // Phase 2 — Library upgrade compatibility scan
+    /** Runs only the library-upgrade compatibility scan (Phase 2). */
+    public void analyzeLibrary(String inputPath) throws IOException {
+        if (spring == null) throw new IllegalStateException("Library scanner not initialized");
         System.out.println("  [upgrade] Phase 2/2 — Library upgrade scan (Spring/Guava/Guice/Jersey/CGLib)...");
         spring.analyze(inputPath);
         System.out.println("  [upgrade]   Library scan complete: "
                 + spring.getFindingsByJar().size() + " JAR(s) with issues");
-
-        analyzed = true;
     }
 
     public void generateReport(String outputFile) throws IOException {
@@ -155,6 +173,23 @@ public class UpgradeAnalyzer {
 
         logger.info("Report written: {}", outPath);
         System.out.println("  [upgrade] Report written → " + outPath);
+    }
+
+    /** Returns true after {@link #analyze(String)} has completed successfully. */
+    public boolean isAnalyzed() { return analyzed; }
+
+    /** Returns true if the IBM binaryAppScanner.jar was found and can be invoked. */
+    public boolean isIbmScannerAvailable() { return ibmScannerAvailable; }
+
+    /** IBM Java 21 findings grouped by component name (unmodifiable). */
+    public Map<String, List<IbmFinding>> getIbmFindingsByComponent() {
+        return Collections.unmodifiableMap(ibmFindingsByComponent);
+    }
+
+    /** Library-upgrade findings grouped by JAR name (unmodifiable). */
+    public Map<String, List<LibraryUpgradeAnalyzer.Finding>> getLibraryFindingsByJar() {
+        if (spring == null) throw new IllegalStateException("Library scanner not initialized");
+        return spring.getFindingsByJar();
     }
 
     // ── IBM scanner invocation ────────────────────────────────────────────────

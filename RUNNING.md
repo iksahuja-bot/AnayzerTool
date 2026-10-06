@@ -202,7 +202,7 @@ run.bat upgrade  c:\Development\JBoss\Jars2\   UpgradeCompatibilityReport.xlsx
 :: WebLogic 15 library migration scan
 run.bat wl15     c:\Development\JBoss\Jars2\   WL15-Migration-Report.xlsx
 
-:: WebLogic 14 library migration scan (same check set as wl15)
+:: WebLogic 12c → 14.1.2 library/API migration scan (IBM Java 21 check + general library upgrades + WL14-specific APIs)
 run.bat wl14     c:\Development\JBoss\Jars2\   WL14-Migration-Report.xlsx
 
 :: WebLogic → WildFly 26 / JBoss EAP 7.4  (Java 8, javax.*)
@@ -544,9 +544,15 @@ run.bat wl15  C:\apps\lib   WL15-Migration-Report.xlsx
 
 ### `wl14` — WebLogic 14 Library Migration
 
-Runs the **exact same check set as `wl15`** (API compatibility scan + bundled
-library version checks) and produces the same 6-sheet report, labelled for
-**WebLogic 14**. All `wl15` arguments — including `--library-versions` — apply.
+WebLogic 12c → 14.1.2 migration scan. **Java 21 compatibility is a prerequisite**
+and is checked first with the IBM WAMT `binaryAppScanner.jar` (auto-detected; if
+absent the sheet is empty and a download hint is shown). After the Java 21 check,
+the scan runs the general library upgrade rules (Spring, Guava, Guice, Jersey,
+CGLib) plus WL14-specific deprecated WebLogic API rules (T3StartupDef,
+T3ShutdownDef, MessageLogger, TrustManager, HostnameVerifier), plus bundled-library
+version checks. Produces a 7-sheet Excel report with the `☕ Java 21 Issues (IBM)`
+sheet and the Library Issues sheet grouped by archive/component. All
+`wl15` arguments — including `--library-versions` — apply.
 
 
 | Argument            | Required | Description                                                     |
@@ -701,7 +707,7 @@ The `🚫 Excluded Rules` sheet lists them all with human-readable explanations.
 
 
 
-### `wl15` / `wl14` modules — 6-sheet report
+### `wl15` / `wl14` modules — 6-sheet report (WL14: 7 sheets with IBM Java 21)
 
 
 | Sheet                     | What to do here                                                                                                                                                                      |

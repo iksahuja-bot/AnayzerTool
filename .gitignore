@@ -73,3 +73,6 @@ WL15-Migration-Report.xlsx
 WL14-Migration-Report.xlsx
 report.xlsx
 report_wildfly27.xlsx
+
+### EffortAnalyzer: local runtime configuration (do not publish) ###
+analyzer.properties

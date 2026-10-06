@@ -46,6 +46,9 @@ public class LibraryUpgradeAnalyzer {
     /** Deduplication key: jarName + fileName + ruleKey → one entry per (file, rule). */
     private final Set<String> seen = new HashSet<>();
 
+    /** True once {@link #analyze(String)} has completed successfully. */
+    private boolean analyzed = false;
+
     /** Loads all library rules with no exclusions. */
     public LibraryUpgradeAnalyzer() {
         this(Set.of());
@@ -92,6 +95,12 @@ public class LibraryUpgradeAnalyzer {
 
         logger.info("Analysis complete. Total findings: {}",
                 findings.values().stream().mapToInt(List::size).sum());
+        analyzed = true;
+    }
+
+    /** Returns true after {@link #analyze(String)} has completed successfully. */
+    public boolean isAnalyzed() {
+        return analyzed;
     }
 
     private List<Path> findJarFiles(Path path) throws IOException {

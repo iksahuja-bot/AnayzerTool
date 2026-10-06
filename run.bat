@@ -11,6 +11,7 @@ setlocal EnableDelayedExpansion
 ::  USAGE (with arguments):
 ::    run.bat upgrade    C:\app\lib  report.xlsx
 ::    run.bat wl15       C:\app\lib  WL15-Migration-Report.xlsx
+::    run.bat wl14       C:\app\lib  WL14-Migration-Report.xlsx
 ::    run.bat wl-jboss26 C:\app\lib  migration26.xlsx
 ::    run.bat wl-jboss27 C:\app\lib  migration27.xlsx
 ::    run.bat analyze    C:\reports\json  ta-analysis.xlsx
@@ -41,6 +42,7 @@ if /i "%~1"=="wl-jboss26" goto :run_from_args
 if /i "%~1"=="wl-jboss27" goto :run_from_args
 if /i "%~1"=="wl-jboss"   goto :run_from_args
 if /i "%~1"=="wl15"        goto :run_from_args
+if /i "%~1"=="wl14"        goto :run_from_args
 if /i "%~1"=="analyze"    goto :run_from_args
 if /i "%~1"=="merge"      goto :run_from_args
 if not "%~1"==""          goto :show_help
@@ -80,7 +82,10 @@ echo.
 echo     [6]  WebLogic 15 Library Migration
 echo            Spring 6 / Jetty 12 / Jackson 2.18 / Netty 4.1 / Log4j 2.25 / EhCache 3 / ...
 echo.
-echo     [7]  Help
+echo     [7]  WebLogic 14 Library Migration
+echo            WebLogic 12 -> 14.1.2 API scan (deprecated WLS APIs + library versions)
+echo.
+echo     [8]  Help
 echo.
 echo     [Q]  Quit
 echo.
@@ -92,9 +97,10 @@ if /i "!CHOICE!"=="3" goto :menu_wljboss27
 if /i "!CHOICE!"=="4" goto :menu_analyze
 if /i "!CHOICE!"=="5" goto :menu_merge
 if /i "!CHOICE!"=="6" goto :menu_wl15
-if /i "!CHOICE!"=="7" goto :show_help
+if /i "!CHOICE!"=="7" goto :menu_wl14
+if /i "!CHOICE!"=="8" goto :show_help
 if /i "!CHOICE!"=="Q" goto :end
-echo   [!] Invalid choice. Please enter 1-7 or Q.
+echo   [!] Invalid choice. Please enter 1-8 or Q.
 goto :interactive_menu
 
 :: ── Menu handlers ─────────────────────────────────────────────────────────────
@@ -154,6 +160,14 @@ echo.
 set /p ARG_INPUT="  Path to JAR/WAR/EAR file or directory: "
 set /p ARG_OUTPUT="  Output Excel file [WL15-Migration-Report.xlsx]: "
 if "!ARG_OUTPUT!"=="" set "ARG_OUTPUT=WL15-Migration-Report.xlsx"
+goto :confirm
+
+:menu_wl14
+set "ARG_MODULE=wl14"
+echo.
+set /p ARG_INPUT="  Path to JAR/WAR/EAR file or directory: "
+set /p ARG_OUTPUT="  Output Excel file [WL14-Migration-Report.xlsx]: "
+if "!ARG_OUTPUT!"=="" set "ARG_OUTPUT=WL14-Migration-Report.xlsx"
 goto :confirm
 
 :confirm
@@ -324,6 +338,7 @@ echo   USAGE
 echo     run.bat                                   Launch interactive menu
 echo     run.bat upgrade    ^<input^> [output]      Java 21 JVM + library upgrade scan
 echo     run.bat wl15       ^<input^> [output]      WebLogic 15 library migration scan
+echo     run.bat wl14       ^<input^> [output]      WebLogic 12 to 14.1.2 API migration scan
 echo     run.bat wl-jboss26 ^<input^> [output]      WebLogic to WildFly 26 / EAP 7.4 (Java 8)
 echo     run.bat wl-jboss27 ^<input^> [output]      WebLogic to WildFly 27+ / EAP 8 (Java 21)
 echo     run.bat analyze    [input]  [output]      IBM TA report analysis (input = JSON dir)
@@ -348,7 +363,13 @@ echo                 Jackson 2.18.9 / Netty 4.1.135 / Log4j 2.25.4
 echo                 JasperReports 7.0.4 / EhCache 3.11.1 / and more
 echo                 Output: 4-sheet Excel (Summary + Findings + Critical^&High + Checklist)
 echo.
-echo     wl-jboss26  WebLogic migration analysis targeting:echo                 WildFly 26 / JBoss EAP 7.4  --  Java 8  --  javax.*
+echo     wl14        WebLogic 12 -^> 14.1.2 API migration scan:
+echo                 Runs the Upgrade analyzer plus WebLogic 14 specific deprecated API checks
+echo                 (T3StartupDef, T3ShutdownDef, MessageLogger, TrustManager, HostnameVerifier)
+echo                 Output: 6-sheet Excel with WL14 identity
+echo.
+echo     wl-jboss26  WebLogic migration analysis targeting:
+echo                 WildFly 26 / JBoss EAP 7.4  --  Java 8  --  javax.*
 echo                 NO javax-^>jakarta namespace migration needed
 echo.
 echo     wl-jboss27  WebLogic migration analysis targeting:
@@ -365,6 +386,7 @@ echo.
 echo   EXAMPLES
 echo     run.bat upgrade    C:\app\lib   Upgrade-Compatibility-Report.xlsx
 echo     run.bat wl15       C:\app\lib   WL15-Migration-Report.xlsx
+echo     run.bat wl14       C:\app\lib   WL14-Migration-Report.xlsx
 echo     run.bat wl-jboss26 C:\app\lib   WlToJBoss-WildFly26-Report.xlsx
 echo     run.bat wl-jboss27 C:\app\lib   WlToJBoss-WildFly27-Report.xlsx
 echo     run.bat analyze    C:\reports\json   AnalyzerOutput.xlsx

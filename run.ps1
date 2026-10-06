@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 #  EffortAnalyzer — PowerShell Launcher
 #  Version: 2.0.0
 #
@@ -14,7 +14,8 @@
 
 param(
     [string] $Module        = "",
-    [string] $Input         = "",
+    [Alias("Input")]
+    [string] $InputPath     = "",
     [string] $Output        = "",
     [string] $TicketFile    = "",
     [string] $ComponentFile = "",
@@ -39,11 +40,12 @@ $DEFAULT_OUTPUT = @{
     "wl-jboss26" = "WlToJBoss-WildFly26-Report.xlsx"
     "wl-jboss27" = "WlToJBoss-WildFly27-Report.xlsx"
     "wl-jboss"   = "WlToJBossMigrationReport.xlsx"
+    "wl14"       = "WL14-Migration-Report.xlsx"
     "analyze"    = "AnalyzerOutput.xlsx"
     "merge"      = "MergedOutput.xlsx"
 }
 
-$VALID_MODULES = @("upgrade", "wl-jboss26", "wl-jboss27", "wl-jboss", "analyze", "merge")
+$VALID_MODULES = @("upgrade", "wl-jboss26", "wl-jboss27", "wl-jboss", "wl14", "analyze", "merge")
 
 # ── Output helpers ─────────────────────────────────────────────────────────────
 function Write-Banner {
@@ -70,11 +72,13 @@ function Show-Help {
     Write-Host "                              upgrade    - Java 21 JVM + Spring/Guava/Guice/CGLib scan"
     Write-Host "                              wl-jboss26 - WebLogic to WildFly 26 / EAP 7.4 (Java 8)"
     Write-Host "                              wl-jboss27 - WebLogic to WildFly 27+ / EAP 8  (Java 21)"
+    Write-Host "                              wl15       - WebLogic 15 library migration scan"
+    Write-Host "                              wl14       - WebLogic 12 to 14.1.2 API migration scan (IBM Java 21 check first)"
     Write-Host "                              analyze    - IBM Transformation Advisor report"
     Write-Host "                              merge      - Merge ticket + component Excel files"
     Write-Host ""
     Write-Host "    -Input         <path>     JAR/WAR/EAR file or directory of archives"
-    Write-Host "                             (required for: upgrade, wl-jboss26, wl-jboss27)"
+    Write-Host "                             (required for: upgrade, wl-jboss26, wl-jboss27, wl15, wl14)"
     Write-Host "                             (optional  for: analyze — directory of IBM TA *.json reports)"
     Write-Host "    -IbmScanner    <path>     Path to binaryAppScanner.jar"
     Write-Host "                             (upgrade only; default: auto-detect from script folder)"
@@ -97,6 +101,8 @@ function Show-Help {
     Write-Host "    .\run.ps1 -Module upgrade    -Input C:\app\lib -IbmScanner C:\tools\binaryAppScanner.jar"
     Write-Host "    .\run.ps1 -Module wl-jboss26 -Input C:\app\lib"
     Write-Host "    .\run.ps1 -Module wl-jboss27 -Input C:\app\lib"
+    Write-Host "    .\run.ps1 -Module wl15       -Input C:\app\lib"
+    Write-Host "    .\run.ps1 -Module wl14       -Input C:\app\lib -Output WL14-Migration-Report.xlsx"
     Write-Host "    .\run.ps1 -Module analyze"
     Write-Host "    .\run.ps1 -Module analyze -Input C:\reports\json -Output AnalyzerOutput.xlsx"
     Write-Host "    .\run.ps1 -Module merge -TicketFile tickets.xlsx -ComponentFile comp.xlsx"
@@ -150,7 +156,8 @@ function Find-Java {
 }
 
 function Assert-JavaVersion($javaExe) {
-    $ver = & $javaExe -version 2>&1 | Select-String "version" | Select-Object -First 1
+    # Use cmd.exe so PowerShell does not treat java's stderr as a terminating error.
+    $ver = (cmd.exe /c "`"$javaExe`" -version 2>&1") | Select-String "version" | Select-Object -First 1
     Write-Info "Java: $ver"
     if ($ver -notmatch 'version "(21|22|23|24)') {
         Write-Warn "Java 21+ is required. Found: $ver"
@@ -191,7 +198,11 @@ function Run-Interactive {
     Write-Host "           Java 21 |  Jakarta EE 10 |  jakarta.* (namespace migration required)"
     Write-Host "    [4]  IBM Transformation Advisor Report Analyzer"
     Write-Host "    [5]  Excel Merger (Tickets + Components)"
-    Write-Host "    [6]  Help"
+    Write-Host "    [6]  WebLogic 15 Library Migration"
+    Write-Host "           Spring 6 / Jetty 12 / Jackson 2.18 / Netty 4.1 / Log4j 2.25 / EhCache 3 / ..."
+    Write-Host "    [7]  WebLogic 14 Library Migration"
+    Write-Host "           WebLogic 12 -> 14.1.2 API scan (IBM Java 21 check + deprecated WLS APIs + library versions)"
+    Write-Host "    [8]  Help"
     Write-Host "    [Q]  Quit"
     Write-Host ""
     $choice = Read-Host "  Enter choice"
@@ -204,17 +215,17 @@ function Run-Interactive {
             Write-Host "  If not present, download from:" -ForegroundColor Gray
             Write-Host "    https://www.ibm.com/support/pages/migration-toolkit-application-binaries" -ForegroundColor Cyan
             Write-Host ""
-            $script:Input  = Prompt-Path "Path to JAR file or directory of JARs"
+            $script:InputPath = Prompt-Path "Path to JAR file or directory of JARs"
             $script:Output = Prompt-Path "Output Excel file" "Upgrade-Compatibility-Report.xlsx"
         }
         "2" {
             $script:Module = "wl-jboss26"
-            $script:Input  = Prompt-Path "Path to JAR/WAR/EAR file or directory"
+            $script:InputPath = Prompt-Path "Path to JAR/WAR/EAR file or directory"
             $script:Output = Prompt-Path "Output Excel file" "WlToJBoss-WildFly26-Report.xlsx"
         }
         "3" {
             $script:Module = "wl-jboss27"
-            $script:Input  = Prompt-Path "Path to JAR/WAR/EAR file or directory"
+            $script:InputPath = Prompt-Path "Path to JAR/WAR/EAR file or directory"
             $script:Output = Prompt-Path "Output Excel file" "WlToJBoss-WildFly27-Report.xlsx"
         }
         "4" {
@@ -223,7 +234,7 @@ function Run-Interactive {
             Write-Host "  Enter the directory containing IBM TA JSON report files." -ForegroundColor Gray
             Write-Host "  Leave blank to use the embedded reports folder inside the JAR." -ForegroundColor Gray
             Write-Host ""
-            $script:Input  = Prompt-Path "JSON reports directory (optional, press Enter to skip)" ""
+            $script:InputPath = Prompt-Path "JSON reports directory (optional, press Enter to skip)" ""
             $script:Output = Prompt-Path "Output Excel file" "AnalyzerOutput.xlsx"
         }
         "5" {
@@ -232,9 +243,19 @@ function Run-Interactive {
             $script:ComponentFile = Prompt-Path "Component Excel file"
             $script:Output        = Prompt-Path "Output Excel file" "MergedOutput.xlsx"
         }
-        "6" { Show-Help; exit 0 }
+        "6" {
+            $script:Module = "wl15"
+            $script:InputPath = Prompt-Path "Path to JAR/WAR/EAR file or directory"
+            $script:Output = Prompt-Path "Output Excel file" "WL15-Migration-Report.xlsx"
+        }
+        "7" {
+            $script:Module = "wl14"
+            $script:InputPath = Prompt-Path "Path to JAR/WAR/EAR file or directory"
+            $script:Output = Prompt-Path "Output Excel file" "WL14-Migration-Report.xlsx"
+        }
+        "8" { Show-Help; exit 0 }
         "Q" { exit 0 }
-        default { Write-Err "Invalid choice. Enter 1-6 or Q."; exit 1 }
+        default { Write-Err "Invalid choice. Enter 1-8 or Q."; exit 1 }
     }
 }
 
@@ -264,7 +285,7 @@ function Build-Args {
         $javaArgs += "--output=$($DEFAULT_OUTPUT[$Module])"
     }
 
-    if ($Input         -ne "") { $javaArgs += "--input=$Input" }
+    if ($InputPath     -ne "") { $javaArgs += "--input=$InputPath" }
     if ($JarList       -ne "") { $javaArgs += "--jar-list=$JarList" }
     if ($IbmScanner    -ne "") { $javaArgs += "--ibm-scanner=$IbmScanner" }
     if ($TicketFile    -ne "") { $javaArgs += "--ticket-file=$TicketFile" }

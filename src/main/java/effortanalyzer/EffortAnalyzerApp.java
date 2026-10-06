@@ -99,7 +99,9 @@ public class EffortAnalyzerApp {
                 ? cfg.getInputPath()
                 : expandJarList(cfg.getJarListFile());
 
-        Wl14Analyzer analyzer = new Wl14Analyzer(cfg.getLibraryVersionsFile());
+        String ibmScanner = resolveIbmScanner(cfg.getIbmScannerJar());
+
+        Wl14Analyzer analyzer = new Wl14Analyzer(cfg.getLibraryVersionsFile(), ibmScanner);
         analyzer.analyze(inputPath);
         analyzer.generateReport(cfg.getOutputFile());
         logger.info("WL14 library migration analysis complete → {}", cfg.getOutputFile());
