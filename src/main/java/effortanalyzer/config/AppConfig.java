@@ -16,6 +16,7 @@ import java.util.*;
  * ── Supported CLI arguments ──────────────────────────────────────────────────
  *
  *   --module=<name>          Module to run: upgrade | wl15 | analyze | merge | wl-jboss26 | wl-jboss27
+ *   --mode=<mode>            Input mode: binary | repo | both
  *   --input=<path>           Input JAR/WAR/EAR or directory
  *   --output=<file>          Output Excel file path
  *   --config=<file>          Path to a custom properties file
@@ -68,6 +69,8 @@ public class AppConfig {
      * and library version checks as wl15, producing the report with WL14 identity.
      */
     public static final String MODULE_WL14       = "wl14";
+    /** Excel-driven source repository checkout and direct source-tree scan module. */
+    public static final String MODULE_SOURCE_INVENTORY = "source-inventory";
 
     private static final String VERSION = "2.0.0";
 
@@ -75,6 +78,7 @@ public class AppConfig {
     private String  module;
 
     // common
+    private String  mode;
     private String  inputPath;
     private String  outputFile;
 
@@ -97,6 +101,14 @@ public class AppConfig {
 
     // wl15 / wl14 — library version checks
     private String  libraryVersionsFile;
+
+    // source inventory
+    private String  sourceInventoryFile;
+    private String  workspaceDir;
+    private boolean reuseWorkspace;
+    private boolean cleanWorkspace;
+    private boolean failOnCheckoutError;
+    private boolean promptCredentials;
 
     // meta
     private boolean helpRequested;
@@ -204,6 +216,7 @@ public class AppConfig {
     private void putArg(String key, String value) {
         switch (key) {
             case "module"          -> resolved.put("module",                    value);
+            case "mode"            -> resolved.put("input.mode",                value);
             case "input"           -> resolved.put("input.path",                value);
             case "output"          -> resolved.put("output.file",               value);
             case "ticket-file"     -> resolved.put("merge.ticket.file",         value);
@@ -215,6 +228,12 @@ public class AppConfig {
             case "excluded-rules"  -> resolved.put("analyzer.excluded.rules",   value);
             case "ibm-scanner"     -> resolved.put("analyzer.ibm.scanner.jar",  value);
             case "library-versions" -> resolved.put("library.versions.file",    value);
+            case "source-inventory" -> resolved.put("source.inventory.file",    value);
+            case "workspace"       -> resolved.put("source.workspace.dir",     value);
+            case "reuse-workspace" -> resolved.put("source.reuse.workspace",   value);
+            case "clean-workspace" -> resolved.put("source.clean.workspace",   value);
+            case "fail-on-checkout-error" -> resolved.put("source.fail.on.checkout.error", value);
+            case "prompt-credentials" -> resolved.put("source.prompt.credentials", value);
             case "config"          -> { /* already handled in first pass */ }
             default                -> System.err.println("Warning: unknown argument --" + key);
         }
@@ -223,6 +242,7 @@ public class AppConfig {
     /** Reads final values out of the merged property bag. */
     private void resolve() {
         module         = get("module",                    "");
+        mode           = get("input.mode",                "").toLowerCase(Locale.ROOT);
         inputPath      = get("input.path",                "");
         outputFile     = get("output.file",               "");
         ticketFile     = get("merge.ticket.file",         "TicketReport.xlsx");
@@ -235,6 +255,12 @@ public class AppConfig {
         wljbossTarget  = get("wljboss.target",            "wildfly27-java21");
         ibmScannerJar  = get("analyzer.ibm.scanner.jar",  "");
         libraryVersionsFile = get("library.versions.file", "");
+        sourceInventoryFile = get("source.inventory.file", "");
+        workspaceDir = get("source.workspace.dir", ".ea-workspace");
+        reuseWorkspace = Boolean.parseBoolean(get("source.reuse.workspace", "true"));
+        cleanWorkspace = Boolean.parseBoolean(get("source.clean.workspace", "false"));
+        failOnCheckoutError = Boolean.parseBoolean(get("source.fail.on.checkout.error", "false"));
+        promptCredentials = Boolean.parseBoolean(get("source.prompt.credentials", "false"));
 
         // Apply module-specific output defaults when no --output was provided
         if (outputFile.isBlank()) {
@@ -247,6 +273,7 @@ public class AppConfig {
                 case MODULE_UPGRADE    -> "Upgrade-Compatibility-Report.xlsx";
                 case MODULE_WL15       -> "WL15-Migration-Report.xlsx";
                 case MODULE_WL14       -> "WL14-Migration-Report.xlsx";
+                case MODULE_SOURCE_INVENTORY -> "SourceInventory-Report.xlsx";
                 default                -> "output.xlsx";
             };
         }
@@ -270,6 +297,10 @@ public class AppConfig {
                  + "Available modules: upgrade | wl15 | wl14 | analyze | merge | wl-jboss26 | wl-jboss27";
         }
 
+        if (!mode.isBlank() && !Set.of("binary", "repo", "both").contains(mode)) {
+            return "Invalid --mode='" + mode + "'. Valid values: binary | repo | both";
+        }
+
         return switch (module) {
             case MODULE_ANALYZE -> {
                 // --input is optional: when given it must be an existing directory
@@ -287,9 +318,36 @@ public class AppConfig {
             }
 
             case MODULE_WL_JBOSS, MODULE_WL_JBOSS26, MODULE_WL_JBOSS27, MODULE_UPGRADE, MODULE_WL15, MODULE_WL14 -> {
-                if (inputPath.isBlank() && jarListFile.isBlank()) {
+                String effectiveMode = mode;
+                if (effectiveMode.isBlank()) {
+                    effectiveMode = !sourceInventoryFile.isBlank()
+                            ? ((!inputPath.isBlank() || !jarListFile.isBlank()) ? "both" : "repo")
+                            : "binary";
+                }
+                boolean needsBinary = effectiveMode.equals("binary") || effectiveMode.equals("both");
+                boolean needsRepo = effectiveMode.equals("repo") || effectiveMode.equals("both");
+
+                if (mode.equals("binary") && !sourceInventoryFile.isBlank()) {
+                    yield module + ": --mode=binary cannot be combined with --source-inventory. Use --mode=both for compiled + source scanning.";
+                }
+                if (mode.equals("repo") && (!inputPath.isBlank() || !jarListFile.isBlank())) {
+                    yield module + ": --mode=repo expects only --source-inventory. Use --mode=both for compiled + source scanning.";
+                }
+                if (!sourceInventoryFile.isBlank() && !Files.isRegularFile(Path.of(sourceInventoryFile))) {
+                    yield module + ": source inventory workbook not found: " + sourceInventoryFile;
+                }
+                if (needsRepo && sourceInventoryFile.isBlank()) {
+                    yield module + ": --mode=" + effectiveMode + " requires --source-inventory=<xlsx>";
+                }
+                if (needsBinary && inputPath.isBlank() && jarListFile.isBlank() && sourceInventoryFile.isBlank()) {
+                    yield module + ": --mode=binary requires --input=<jar-or-directory> or --jar-list=<file>";
+                }
+                if (needsBinary && inputPath.isBlank() && jarListFile.isBlank() && !sourceInventoryFile.isBlank()) {
+                    yield module + ": --input=<jar-or-directory> is required for --mode=binary (or use --mode=repo for source-only scan)";
+                }
+                if (mode.isBlank() && inputPath.isBlank() && jarListFile.isBlank() && sourceInventoryFile.isBlank()) {
                     yield module + ": --input=<jar-or-directory> is required "
-                        + "(or set input.path / wl.jar.list.file in analyzer.properties)";
+                        + "(or provide --mode=repo --source-inventory=<xlsx> for source checkout/scan)";
                 }
                 if (!inputPath.isBlank() && !Files.exists(Path.of(inputPath))) {
                     yield module + ": input path not found: " + inputPath;
@@ -300,8 +358,18 @@ public class AppConfig {
                 yield "";
             }
 
+            case MODULE_SOURCE_INVENTORY -> {
+                if (sourceInventoryFile.isBlank()) {
+                    yield "source-inventory: --source-inventory=<xlsx> is required";
+                }
+                if (!Files.isRegularFile(Path.of(sourceInventoryFile))) {
+                    yield "source-inventory: inventory workbook not found: " + sourceInventoryFile;
+                }
+                yield "";
+            }
+
             default -> "Unknown module: '" + module
-                     + "'. Available: upgrade | wl15 | wl14 | analyze | merge | wl-jboss26 | wl-jboss27";
+                     + "'. Available: upgrade | wl15 | wl14 | analyze | merge | wl-jboss26 | wl-jboss27 | source-inventory";
         };
     }
 
@@ -315,17 +383,24 @@ public class AppConfig {
         System.out.println();
         System.out.println("Modules:");
         System.out.println("  upgrade     Java 21 JVM + Spring/Guava/Guice/CGLib library upgrade scan");
+        System.out.println("                Use --input for compiled archives, --source-inventory for repository source scan, or both for combined output");
         System.out.println("                Exclusions: edit upgrade-excluded-rules.txt");
         System.out.println("  wl15        WebLogic 15 library migration scan");
+        System.out.println("                Use --input for compiled archives, --source-inventory for repository source scan, or both for combined output");
         System.out.println("                Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3 and more");
         System.out.println("  wl14        WebLogic 12c → 14.1.2 library/API migration scan (IBM Java 21 check first)");
+        System.out.println("                Use --input for compiled archives, --source-inventory for repository source scan, or both for combined output");
         System.out.println("  analyze     Analyze JSON migration reports (IBM TA format)");
         System.out.println("  merge       Merge ticket report with component list");
         System.out.println("  wl-jboss26  WebLogic → WildFly 26 / JBoss EAP 7.4  (Java 8,  javax.*)");
+        System.out.println("                Use --input for compiled archives, --source-inventory for repository source scan, or both for combined output");
         System.out.println("  wl-jboss27  WebLogic → WildFly 27+ / JBoss EAP 8   (Java 21, jakarta.*)");
+        System.out.println("                Use --input for compiled archives, --source-inventory for repository source scan, or both for combined output");
         System.out.println();
         System.out.println("Common options:");
         System.out.println("  --module=<name>          Module to run (required)");
+        System.out.println("  --mode=binary|repo|both  Input mode for migration modules");
+        System.out.println("                           binary: --input compiled archives; repo: --source-inventory workbook; both: both inputs");
         System.out.println("  --output=<file>          Output Excel file path");
         System.out.println("  --config=<file>          Custom properties file (default: analyzer.properties)");
         System.out.println("  --help / -h              Show this help");
@@ -339,6 +414,14 @@ public class AppConfig {
         System.out.println("  --parallel=true|false    Enable parallel file processing (default: true)");
         System.out.println("  --excluded-rules=A,B,C   Comma-separated rule IDs to skip");
         System.out.println("  --output=<file>          Output (default: AnalyzerOutput.xlsx)");
+        System.out.println();
+        System.out.println("Source inventory input (optional for upgrade/wl14/wl15/wl-jboss* modules)");
+        System.out.println("  --source-inventory=<xlsx> Excel workbook with Component and Repository columns");
+        System.out.println("  --workspace=<dir>        Checkout workspace (default: .ea-workspace)");
+        System.out.println("  --reuse-workspace=true|false  Fetch/update existing checkouts (default: true)");
+        System.out.println("  --clean-workspace=true|false  Delete component checkout before checkout (default: false)");
+        System.out.println("  --fail-on-checkout-error=true|false  Stop on first checkout error (default: false)");
+        System.out.println("  --prompt-credentials=true|false  Prompt once for Git/SVN username/password (default: false)");
         System.out.println();
         System.out.println("Module: merge");
         System.out.println("  --ticket-file=<file>     Ticket report Excel  (default: TicketReport.xlsx)");
@@ -355,8 +438,9 @@ public class AppConfig {
         System.out.println("    Place it next to EffortAnalyzer-2.0.0-shaded.jar (auto-detected).");
         System.out.println("  Phase 2 — Library upgrade: Spring 5.3.39 / Guava 31.1 / Guice 5.1 / CGLib→ByteBuddy");
         System.out.println("  Exclusions: edit upgrade-excluded-rules.txt (IBM TA rule IDs, one per line)");
-        System.out.println("  --input=<path>           JAR/WAR/EAR or directory of archives (required)");
+        System.out.println("  --input=<path>           JAR/WAR/EAR or directory of archives (required unless --source-inventory is provided)");
         System.out.println("  --jar-list=<file>        Text file: one JAR path per line (alternative to --input)");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
         System.out.println("  --ibm-scanner=<path>     Path to binaryAppScanner.jar (default: auto-detect)");
         System.out.println("  --output=<file>          Output (default: Upgrade-Compatibility-Report.xlsx)");
         System.out.println();
@@ -376,20 +460,24 @@ public class AppConfig {
         System.out.println("  Then scans for general library upgrade issues (Spring, Guava, Guice, Jersey, CGLib) plus");
         System.out.println("  WebLogic 14.1.2-specific proprietary API removals (T3StartupDef, T3ShutdownDef,");
         System.out.println("  MessageLogger, TrustManager, HostnameVerifier). Also checks bundled library versions.");
-        System.out.println("  --input=<path>           JAR/WAR/EAR or directory (required)");
+        System.out.println("  --input=<path>           JAR/WAR/EAR or directory (required unless --source-inventory is provided)");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
         System.out.println("  --output=<file>          Output (default: WL14-Migration-Report.xlsx)");
         System.out.println("  --library-versions=<file> Custom library-versions.properties target table (optional)");
         System.out.println("                           Built-in targets overridable; also resolved next to the JAR");
         System.out.println();
-        System.out.println("Module: wl-jboss26");        System.out.println("  Target: WildFly 26 / JBoss EAP 7.4 – Java 8 – Jakarta EE 8 (javax.*)");
-        System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list given)");
+        System.out.println("Module: wl-jboss26");
+        System.out.println("  Target: WildFly 26 / JBoss EAP 7.4 – Java 8 – Jakarta EE 8 (javax.*)");
+        System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list or --source-inventory given)");
         System.out.println("  --jar-list=<file>        Text file: one JAR path per line");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
         System.out.println("  --output=<file>          Output (default: WlToJBoss-WildFly26-Report.xlsx)");
         System.out.println();
         System.out.println("Module: wl-jboss27");
         System.out.println("  Target: WildFly 27+ / JBoss EAP 8 – Java 21 – Jakarta EE 10 (jakarta.*)");
-        System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list given)");
+        System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list or --source-inventory given)");
         System.out.println("  --jar-list=<file>        Text file: one JAR path per line");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
         System.out.println("  --output=<file>          Output (default: WlToJBoss-WildFly27-Report.xlsx)");
         System.out.println();
         System.out.println("Configuration file (optional):");
@@ -401,12 +489,20 @@ public class AppConfig {
         System.out.println("  java -jar effortanalyzer.jar --module=upgrade --input=C:\\apps\\lib\\");
         System.out.println("  java -jar effortanalyzer.jar --module=upgrade --input=myapp.jar --output=report.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=upgrade --jar-list=jars.txt");
+        System.out.println("  java -jar effortanalyzer.jar --module=upgrade --mode=repo --source-inventory=ComponentList.xlsx --prompt-credentials=true");
+        System.out.println("  java -jar effortanalyzer.jar --module=upgrade --mode=both --input=C:\\apps\\lib\\ --source-inventory=ComponentList.xlsx --prompt-credentials=true --output=Upgrade-Combined.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=analyze --input=C:\\reports\\json\\");
         System.out.println("  java -jar effortanalyzer.jar --module=analyze --input=C:\\reports\\json\\ --output=out.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=analyze --parallel=false --output=out.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss26 --input=C:\\apps\\lib\\");
+        System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss26 --mode=repo --source-inventory=ComponentList.xlsx --prompt-credentials=true");
+        System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss26 --mode=both --input=C:\\apps\\lib\\ --source-inventory=ComponentList.xlsx --prompt-credentials=true --output=WlToJBoss26-Combined.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss27 --jar-list=jars.txt --output=report.xlsx");
+        System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss27 --mode=repo --source-inventory=ComponentList.xlsx --prompt-credentials=true");
+        System.out.println("  java -jar effortanalyzer.jar --module=wl-jboss27 --mode=both --input=C:\\apps\\lib\\ --source-inventory=ComponentList.xlsx --prompt-credentials=true --output=WlToJBoss27-Combined.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=wl14 --input=C:\\apps\\lib\\");
+        System.out.println("  java -jar effortanalyzer.jar --module=wl14 --mode=repo --source-inventory=ComponentList.xlsx --prompt-credentials=true");
+        System.out.println("  java -jar effortanalyzer.jar --module=wl14 --mode=both --input=C:\\apps\\lib\\ --source-inventory=ComponentList.xlsx --prompt-credentials=true --output=WL14-Combined.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --module=merge --ticket-file=t.xlsx --component-file=c.xlsx");
         System.out.println("  java -jar effortanalyzer.jar --config=prod.properties");
         System.out.println();
@@ -433,6 +529,12 @@ public class AppConfig {
     public String  getWlJBossTarget()   { return wljbossTarget; }
     public String  getIbmScannerJar()   { return ibmScannerJar; }
     public String  getLibraryVersionsFile() { return libraryVersionsFile; }
+    public String  getSourceInventoryFile() { return sourceInventoryFile; }
+    public String  getWorkspaceDir() { return workspaceDir; }
+    public boolean isReuseWorkspace() { return reuseWorkspace; }
+    public boolean isCleanWorkspace() { return cleanWorkspace; }
+    public boolean isFailOnCheckoutError() { return failOnCheckoutError; }
+    public boolean isPromptCredentials() { return promptCredentials; }
     public boolean isHelpRequested()    { return helpRequested; }
     public boolean isVersionRequested() { return versionRequested; }
 

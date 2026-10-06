@@ -9,11 +9,23 @@ setlocal EnableDelayedExpansion
 ::    run.bat
 ::
 ::  USAGE (with arguments):
-::    run.bat upgrade    C:\app\lib  report.xlsx
-::    run.bat wl15       C:\app\lib  WL15-Migration-Report.xlsx
-::    run.bat wl14       C:\app\lib  WL14-Migration-Report.xlsx
-::    run.bat wl-jboss26 C:\app\lib  migration26.xlsx
-::    run.bat wl-jboss27 C:\app\lib  migration27.xlsx
+::    run.bat <module> binary <compiled-input> [output-file]
+::    run.bat <module> repo   <component-workbook> [output-file]
+::    run.bat <module> both   <compiled-input> <component-workbook> [output-file]
+::
+::    run.bat upgrade    binary C:\app\lib  report.xlsx
+::    run.bat upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
+::    run.bat upgrade    both   C:\app\lib  ComponentList.xlsx Upgrade-Combined.xlsx
+::    run.bat wl15       binary C:\app\lib  WL15-Migration-Report.xlsx
+::    run.bat wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+::    run.bat wl14       binary C:\app\lib  WL14-Migration-Report.xlsx
+::    run.bat wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+::    run.bat wl-jboss26 binary C:\app\lib  migration26.xlsx
+::    run.bat wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+::    run.bat wl-jboss26 both   C:\app\lib  ComponentList.xlsx WlToJBoss26-Combined.xlsx
+::    run.bat wl-jboss27 binary C:\app\lib  migration27.xlsx
+::    run.bat wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+::    run.bat wl-jboss27 both   C:\app\lib  ComponentList.xlsx WlToJBoss27-Combined.xlsx
 ::    run.bat analyze    C:\reports\json  ta-analysis.xlsx
 ::    run.bat analyze                     ta-analysis.xlsx   (uses embedded reports)
 ::    run.bat merge
@@ -34,9 +46,12 @@ set "DEFAULT_JAVA_HOME="
 call :print_banner
 
 :: ── Handle command-line arguments ─────────────────────────────────────────────
+set "FIRST_ARG=%~1"
 if /i "%~1"=="help"       goto :show_help
 if /i "%~1"=="-h"         goto :show_help
 if /i "%~1"=="--help"     goto :show_help
+if "%~1"==""              goto :interactive_menu
+if "!FIRST_ARG:~0,2!"=="--" goto :run_java_cli_args
 if /i "%~1"=="upgrade"    goto :run_from_args
 if /i "%~1"=="wl-jboss26" goto :run_from_args
 if /i "%~1"=="wl-jboss27" goto :run_from_args
@@ -50,11 +65,55 @@ if not "%~1"==""          goto :show_help
 :: No arguments — show interactive menu
 goto :interactive_menu
 
+:: ── Pass Java CLI-style --options through unchanged ───────────────────────────
+:run_java_cli_args
+call :find_java
+if errorlevel 1 goto :end
+call :check_jar
+if errorlevel 1 goto :end
+echo.
+echo   -- Running: Java CLI arguments -------------------------
+echo   [cmd]  "!JAVA_EXE!" -jar "!JAR!" %*
+echo.
+"!JAVA_EXE!" -jar "!JAR!" %*
+set EXIT_CODE=!errorlevel!
+echo.
+if !EXIT_CODE!==0 (
+    echo   [OK]  Completed successfully.
+) else (
+    echo   [ERR] Failed with exit code !EXIT_CODE!. Check output above.
+)
+goto :end
+
 :: ── Run from command-line arguments ───────────────────────────────────────────
 :run_from_args
 set "ARG_MODULE=%~1"
+set "ARG_MODE=binary"
 set "ARG_INPUT=%~2"
 set "ARG_OUTPUT=%~3"
+set "ARG_SOURCE_INVENTORY=%~4"
+set "ARG_EXTRA_OUTPUT=%~5"
+if /i "%~2"=="binary" (
+    set "ARG_MODE=binary"
+    set "ARG_INPUT=%~3"
+    set "ARG_OUTPUT=%~4"
+    set "ARG_SOURCE_INVENTORY="
+    set "ARG_EXTRA_OUTPUT="
+)
+if /i "%~2"=="repo" (
+    set "ARG_MODE=repo"
+    set "ARG_INPUT="
+    set "ARG_SOURCE_INVENTORY=%~3"
+    set "ARG_OUTPUT=%~4"
+    set "ARG_EXTRA_OUTPUT="
+)
+if /i "%~2"=="both" (
+    set "ARG_MODE=both"
+    set "ARG_INPUT=%~3"
+    set "ARG_SOURCE_INVENTORY=%~4"
+    set "ARG_OUTPUT=%~5"
+    set "ARG_EXTRA_OUTPUT="
+)
 call :find_java
 if errorlevel 1 goto :end
 call :check_jar
@@ -280,17 +339,27 @@ if exist "!REPORTS_DIR!\" (
 )
 goto :eof
 
+:mark_source_inventory_module
+if /i "!ARG_MODULE!"=="upgrade"    set "ROUTE_AS_SOURCE_INVENTORY=true"
+if /i "!ARG_MODULE!"=="wl15"       set "ROUTE_AS_SOURCE_INVENTORY=true"
+if /i "!ARG_MODULE!"=="wl14"       set "ROUTE_AS_SOURCE_INVENTORY=true"
+if /i "!ARG_MODULE!"=="wl-jboss"   set "ROUTE_AS_SOURCE_INVENTORY=true"
+if /i "!ARG_MODULE!"=="wl-jboss26" set "ROUTE_AS_SOURCE_INVENTORY=true"
+if /i "!ARG_MODULE!"=="wl-jboss27" set "ROUTE_AS_SOURCE_INVENTORY=true"
+goto :eof
+
 :: ── Run module ────────────────────────────────────────────────────────────────
 :run_module
 if /i "!ARG_MODULE!"=="upgrade" (
     call :prepare_reports_folder
 )
-set "JAVA_ARGS=--module=!ARG_MODULE!"
-if not "!ARG_INPUT!"==""  set "JAVA_ARGS=!JAVA_ARGS! --input=!ARG_INPUT!"
+set "JAVA_ARGS=--module=!ARG_MODULE! --mode=!ARG_MODE!"
+if not "!ARG_INPUT!"=="" set "JAVA_ARGS=!JAVA_ARGS! --input=!ARG_INPUT!"
+if not "!ARG_SOURCE_INVENTORY!"=="" set "JAVA_ARGS=!JAVA_ARGS! --source-inventory=!ARG_SOURCE_INVENTORY! --prompt-credentials=true"
 if not "!ARG_OUTPUT!"=="" set "JAVA_ARGS=!JAVA_ARGS! --output=!ARG_OUTPUT!"
 
 echo.
-echo   ── Running: !ARG_MODULE! ──────────────────────────────
+echo   -- Running: !ARG_MODULE! ------------------------------
 echo   [cmd]  "!JAVA_EXE!" -jar "!JAR!" !JAVA_ARGS!
 echo.
 
@@ -315,7 +384,7 @@ if not "!COMP_FILE!"==""   set "JAVA_ARGS=!JAVA_ARGS! --component-file=!COMP_FIL
 if not "!ARG_OUTPUT!"==""  set "JAVA_ARGS=!JAVA_ARGS! --output=!ARG_OUTPUT!"
 
 echo.
-echo   ── Running: merge ─────────────────────────────────────
+echo   -- Running: merge -------------------------------------
 echo   [cmd]  "!JAVA_EXE!" -jar "!JAR!" !JAVA_ARGS!
 echo.
 
@@ -336,11 +405,12 @@ goto :eof
 echo.
 echo   USAGE
 echo     run.bat                                   Launch interactive menu
-echo     run.bat upgrade    ^<input^> [output]      Java 21 JVM + library upgrade scan
-echo     run.bat wl15       ^<input^> [output]      WebLogic 15 library migration scan
-echo     run.bat wl14       ^<input^> [output]      WebLogic 12 to 14.1.2 API migration scan
-echo     run.bat wl-jboss26 ^<input^> [output]      WebLogic to WildFly 26 / EAP 7.4 (Java 8)
-echo     run.bat wl-jboss27 ^<input^> [output]      WebLogic to WildFly 27+ / EAP 8 (Java 21)
+echo     run.bat --module=^<name^> [--option=value ...]  Pass Java CLI-style options through to the analyzer
+echo     run.bat upgrade    ^<mode^> ^<input^> [source-workbook] [output]  Java 21 JVM + library upgrade scan
+echo     run.bat wl15       ^<mode^> ^<input^> [source-workbook] [output]  WebLogic 15 migration scan
+echo     run.bat wl14       ^<mode^> ^<input^> [source-workbook] [output]  WebLogic 12 to 14.1.2 API migration scan
+echo     run.bat wl-jboss26 ^<mode^> ^<input^> [source-workbook] [output]  WebLogic to WildFly 26 / EAP 7.4 (Java 8)
+echo     run.bat wl-jboss27 ^<mode^> ^<input^> [source-workbook] [output]  WebLogic to WildFly 27+ / EAP 8 (Java 21)
 echo     run.bat analyze    [input]  [output]      IBM TA report analysis (input = JSON dir)
 echo     run.bat merge                             Excel merge (prompts for files)
 echo     run.bat help                              Show this help
@@ -381,14 +451,30 @@ echo                 produces a grouped Excel workbook.
 echo                 --input ^<dir^>  external directory of *.json report files
 echo                               (omit to use the embedded reports/ folder in the JAR)
 echo.
+echo     mode        Controls what kind of input the launcher expects for migration modules:
+echo                 binary = compiled JAR/WAR/EAR file or directory, passed as --input
+echo                 repo   = component workbook, passed as --source-inventory with credential prompt
+echo                 both   = compiled input plus component workbook in one report
+echo                 Workbook columns: Component, Repository, optional Type, Branch, Revision, Path, Enabled.
+echo.
 echo     merge       Merges JIRA ticket report with a component list
 echo.
 echo   EXAMPLES
-echo     run.bat upgrade    C:\app\lib   Upgrade-Compatibility-Report.xlsx
-echo     run.bat wl15       C:\app\lib   WL15-Migration-Report.xlsx
-echo     run.bat wl14       C:\app\lib   WL14-Migration-Report.xlsx
-echo     run.bat wl-jboss26 C:\app\lib   WlToJBoss-WildFly26-Report.xlsx
-echo     run.bat wl-jboss27 C:\app\lib   WlToJBoss-WildFly27-Report.xlsx
+echo     run.bat upgrade    binary C:\app\lib   Upgrade-Compatibility-Report.xlsx
+echo     run.bat upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
+echo     run.bat upgrade    both   C:\app\lib   ComponentList.xlsx Upgrade-Combined.xlsx
+echo     run.bat wl15       binary C:\app\lib   WL15-Migration-Report.xlsx
+echo     run.bat wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+echo     run.bat wl14       binary C:\app\lib   WL14-Migration-Report.xlsx
+echo     run.bat wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+echo     run.bat --module=wl14 --mode=repo --source-inventory=C:\app\ComponentList.xlsx --prompt-credentials=true --output=SourceInventory-Report.xlsx
+echo     run.bat wl14       both   C:\app\lib   ComponentList.xlsx WL14-Combined.xlsx
+echo     run.bat wl-jboss26 binary C:\app\lib   WlToJBoss-WildFly26-Report.xlsx
+echo     run.bat wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+echo     run.bat wl-jboss26 both   C:\app\lib   ComponentList.xlsx WlToJBoss26-Combined.xlsx
+echo     run.bat wl-jboss27 binary C:\app\lib   WlToJBoss-WildFly27-Report.xlsx
+echo     run.bat wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+echo     run.bat wl-jboss27 both   C:\app\lib   ComponentList.xlsx WlToJBoss27-Combined.xlsx
 echo     run.bat analyze    C:\reports\json   AnalyzerOutput.xlsx
 echo     run.bat analyze                       AnalyzerOutput.xlsx
 echo.

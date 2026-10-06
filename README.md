@@ -8,11 +8,11 @@ A suite of analysis tools for migration planning, API deprecation detection, and
 
 | Module | What it does | Input |
 |--------|-------------|-------|
-| [`upgrade`](#upgrade--upgrade-compatibility-analyzer) | Runs IBM WAMT (`binaryAppScanner.jar`) for Java 8→21 JVM compatibility + built-in Spring / Guava / Guice / Jersey / CGLib library scan. Produces a single 6-sheet Excel report. | JAR / WAR / EAR or directory |
-| [`wl15`](#wl15--weblogic-15-library-migration) | Scans JARs for API compatibility issues across the WL15 library upgrade set: Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3, JasperReports 7, and more — plus bundled-library **version checks** against the WL15 targets. Produces a 6-sheet Excel report with a Checklist and a Library Versions sheet. | JAR / WAR / EAR or directory |
-| [`wl14`](#wl14--weblogic-14-library-migration) | WebLogic 12c → 14.1.2 migration scan: IBM WAMT Java 21 compatibility check, general library upgrade rules (Spring, Guava, Guice, Jersey, CGLib), WL14-specific deprecated WebLogic APIs, plus bundled-library version checks. Produces an 8-sheet Excel report grouped by component with dedicated IBM Java 21 and WebLogic API Issues sheets. | JAR / WAR / EAR or directory |
-| [`wl-jboss26`](#wl-jboss26--weblogic--wildfly-26) | WebLogic → WildFly 26 / JBoss EAP 7.4 migration analysis (Java 8, `javax.*`) | JAR / WAR / EAR or directory |
-| [`wl-jboss27`](#wl-jboss27--weblogic--wildfly-27) | WebLogic → WildFly 27+ / JBoss EAP 8 migration analysis (Java 21, `jakarta.*`) | JAR / WAR / EAR or directory |
+| [`upgrade`](#upgrade--upgrade-compatibility-analyzer) | Runs IBM WAMT (`binaryAppScanner.jar`) for Java 8→21 JVM compatibility + built-in Spring / Guava / Guice / Jersey / CGLib library scan. Can also scan repository source inventory with the upgrade rule profile and combine source sheets into the compiled report. | JAR / WAR / EAR directory, source inventory workbook, or both |
+| [`wl15`](#wl15--weblogic-15-library-migration) | Scans compiled archives or repository source inventory for API compatibility issues across the WL15 library upgrade set: Spring 6, Jetty 12, Jackson 2.18, Netty 4.1, Log4j 2.25, EhCache 3, JasperReports 7, and more — plus bundled-library **version checks** for compiled inputs. Produces a migration workbook with Checklist, Library Versions, and optional Source sheets. | JAR / WAR / EAR directory, source inventory workbook, or both |
+| [`wl14`](#wl14--weblogic-14-library-migration) | WebLogic 12c → 14.1.2 migration scan: IBM WAMT Java 21 compatibility check for compiled inputs, general library upgrade rules, WL14-specific deprecated WebLogic APIs, bundled-library version checks, and repository source scanning from a component workbook. | JAR / WAR / EAR directory, source inventory workbook, or both |
+| [`wl-jboss26`](#wl-jboss26--weblogic--wildfly-26) | WebLogic → WildFly 26 / JBoss EAP 7.4 migration analysis (Java 8, `javax.*`). Supports compiled archives, repository source inventory, or combined workbooks. | JAR / WAR / EAR directory, source inventory workbook, or both |
+| [`wl-jboss27`](#wl-jboss27--weblogic--wildfly-27) | WebLogic → WildFly 27+ / JBoss EAP 8 migration analysis (Java 21, `jakarta.*`). Supports compiled archives, repository source inventory, or combined workbooks. | JAR / WAR / EAR directory, source inventory workbook, or both |
 | [`analyze`](#analyze--ibm-transformation-advisor-report-analyzer) | Consolidates IBM Transformation Advisor JSON reports into a grouped Excel workbook | Optional external JSON folder |
 | [`merge`](#merge--excel-merger) | Merges a JIRA ticket report with a component list for effort tracking | Two Excel files |
 
@@ -24,6 +24,9 @@ A suite of analysis tools for migration planning, API deprecation detection, and
 
 - **Java 21+** on `PATH` (or `JAVA_HOME` set)
 - **Maven 3.8+** — only needed if building from source
+- **SVN command-line client** — required only when `--source-inventory` rows use SVN repositories. Verify with `svn --version`.
+- **Git command-line client** — required only when `--source-inventory` rows use Git repositories. Verify with `git --version`.
+- **Corporate repository access** — for SVN over corporate SSO, have your SSO username/password available and run with `--prompt-credentials=true`.
 - **`binaryAppScanner.jar`** — required for the `upgrade` module's Java 21 scan  
   Download free from: <https://www.ibm.com/support/pages/migration-toolkit-application-binaries>  
   Place it in the same folder as `EffortAnalyzer-2.0.0-shaded.jar`.
@@ -39,10 +42,19 @@ Output JAR: `target/EffortAnalyzer-2.0.0-shaded.jar`
 ### Run (Windows)
 
 ```bat
-run.bat upgrade    C:\apps\lib
-run.bat wl15       C:\apps\lib
-run.bat wl-jboss26 C:\apps\lib
-run.bat wl-jboss27 C:\apps\lib
+run.bat upgrade    binary C:\apps\lib
+run.bat upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat upgrade    both   C:\apps\lib ComponentList.xlsx Upgrade-Combined.xlsx
+run.bat wl15       binary C:\apps\lib
+run.bat wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl14       both   C:\apps\lib ComponentList.xlsx WL14-Combined.xlsx
+run.bat wl-jboss26 binary C:\apps\lib
+run.bat wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl-jboss26 both   C:\apps\lib ComponentList.xlsx WlToJBoss26-Combined.xlsx
+run.bat wl-jboss27 binary C:\apps\lib
+run.bat wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl-jboss27 both   C:\apps\lib ComponentList.xlsx WlToJBoss27-Combined.xlsx
 run.bat analyze
 run.bat help
 ```
@@ -51,10 +63,19 @@ run.bat help
 
 ```bash
 chmod +x run.sh          # first time only
-./run.sh upgrade    /opt/app/lib
-./run.sh wl15       /opt/app/lib
-./run.sh wl-jboss26 /opt/app/lib
-./run.sh wl-jboss27 /opt/app/lib
+./run.sh upgrade    binary /opt/app/lib
+./run.sh upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
+./run.sh upgrade    both   /opt/app/lib ComponentList.xlsx Upgrade-Combined.xlsx
+./run.sh wl15       binary /opt/app/lib
+./run.sh wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+./run.sh wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+./run.sh wl14       both   /opt/app/lib ComponentList.xlsx WL14-Combined.xlsx
+./run.sh wl-jboss26 binary /opt/app/lib
+./run.sh wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+./run.sh wl-jboss26 both   /opt/app/lib ComponentList.xlsx WlToJBoss26-Combined.xlsx
+./run.sh wl-jboss27 binary /opt/app/lib
+./run.sh wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+./run.sh wl-jboss27 both   /opt/app/lib ComponentList.xlsx WlToJBoss27-Combined.xlsx
 ./run.sh analyze
 ./run.sh help
 ```
@@ -71,6 +92,17 @@ java -jar EffortAnalyzer-2.0.0.jar --module=wl15 --input=/opt/app/lib
 # Explicit IBM scanner path
 java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --input=/opt/app/lib \
      --ibm-scanner=/opt/tools/binaryAppScanner.jar
+
+# Repository source scan from SVN/Git/local component workbook; prompts once for credentials
+# Works with upgrade, wl14, wl15, wl-jboss26, wl-jboss27, and wl-jboss.
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl-jboss26 --mode=repo \
+     --source-inventory=ComponentList.xlsx --prompt-credentials=true \
+     --workspace=.ea-workspace --output=SourceInventory-Report.xlsx
+
+# Combined compiled archive scan + repository source scan in one workbook
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade --mode=both \
+     --input=/opt/app/lib --source-inventory=ComponentList.xlsx \
+     --prompt-credentials=true --output=Upgrade-Combined.xlsx
 
 java -jar EffortAnalyzer-2.0.0-shaded.jar --help
 ```
@@ -492,6 +524,51 @@ Edit `src/main/resources/log4j2.xml` to customise.
 
 ---
 
+## WL14/WL15 source inventory SVN requirements
+
+To test WL14/WL15 compatibility checks against SVN repositories using `--source-inventory`, you need:
+
+1. Java 21+ and the built EffortAnalyzer JAR.
+2. `svn` installed and available on `PATH` (`svn --version` should work in the same terminal used to run EffortAnalyzer).
+3. Network/VPN access to the corporate SVN host.
+4. Your corporate SSO username and password, unless the SVN client already has valid cached credentials.
+5. A component workbook with at least `Component` and `Repository` columns. Use `Type=SVN` for SVN rows when the repository URL is not self-evident. Optional columns are `Branch`, `Revision`, `Path`, and `Enabled`.
+
+Recommended WL14 command for a corporate SSO-backed SVN source scan:
+
+```bat
+run.bat wl14 repo ComponentList.xlsx SourceInventory-Report.xlsx
+```
+
+For WL15, use the same workbook with the WL15 rule profile:
+
+```bat
+run.bat wl15 repo ComponentList.xlsx SourceInventory-Report.xlsx
+```
+
+For a combined compiled + repository report, use `both` and pass compiled archives first, then the component workbook:
+
+```bat
+run.bat wl14 both C:\apps\lib ComponentList.xlsx WL14-Combined.xlsx
+```
+
+or directly:
+
+```bat
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl14 ^
+  --mode=repo ^
+  --source-inventory=ComponentList.xlsx ^
+  --prompt-credentials=true ^
+  --workspace=.ea-workspace ^
+  --output=SourceInventory-Report.xlsx
+```
+
+Use `--mode=repo` for source-only scanning and `--mode=both` for compiled + source scanning. The migration module (`upgrade`, `wl14`, `wl15`, or `wl-jboss*`) determines which source-rule profile is applied.
+
+`--prompt-credentials=true` prompts once and passes the supplied username/password to SVN as `--username` and `--password`. The SVN command is run non-interactively with `--trust-server-cert`, so if your organization requires a first-time certificate acceptance or MFA/browser login, run one manual `svn checkout` or `svn info` first to complete that setup.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -505,6 +582,9 @@ Edit `src/main/resources/log4j2.xml` to customise.
 | Report not created — directory missing | Create the output directory manually |
 | Java not found | Ensure Java 21+ is on `PATH` or set `JAVA_HOME` |
 | Build fails — can't resolve dependencies | Use `-s settings-local.xml` flag with Maven |
+| SVN checkout fails / `svn` not found | Install the SVN CLI and verify `svn --version` works in the terminal used to run the tool |
+| SVN authentication fails | Use `--prompt-credentials=true`; if corporate SSO requires MFA/browser login, first run `svn info <repo-url>` or `svn checkout <repo-url>` manually to seed credentials/certificates |
+| Source inventory report has checkout errors | Review the `Checkout Errors` sheet and `.ea-workspace`; use `--clean-workspace=true` to force fresh checkouts |
 | Out of memory during scan | Add `-Xmx2g` before `-jar` |
 
 For full troubleshooting, setup instructions, and report reading guide see **[RUNNING.md](RUNNING.md)**.

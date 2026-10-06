@@ -8,12 +8,15 @@
 #    .\run.ps1 -Module wl-jboss26 -Input "C:\lib"
 #    .\run.ps1 -Module wl-jboss27 -Input "C:\lib"
 #    .\run.ps1 -Module analyze
+#    .\run.ps1 -Module wl14 -Mode repo -SourceInventory "ComponentList.xlsx" -PromptCredentials
 #    .\run.ps1 -Module merge -TicketFile "tickets.xlsx" -ComponentFile "comp.xlsx"
 #    .\run.ps1 -Help
 # =============================================================================
 
 param(
     [string] $Module        = "",
+    [ValidateSet("", "binary", "repo", "both")]
+    [string] $Mode          = "",
     [Alias("Input")]
     [string] $InputPath     = "",
     [string] $Output        = "",
@@ -21,6 +24,12 @@ param(
     [string] $ComponentFile = "",
     [string] $JarList       = "",
     [string] $IbmScanner    = "",
+    [string] $SourceInventory = "",
+    [string] $Workspace     = "",
+    [switch] $PromptCredentials,
+    [switch] $CleanWorkspace,
+    [switch] $NoReuseWorkspace,
+    [switch] $FailOnCheckoutError,
     [string] $Config        = "",
     [string] $JavaHome      = "",
     [switch] $OpenReport,
@@ -45,7 +54,7 @@ $DEFAULT_OUTPUT = @{
     "merge"      = "MergedOutput.xlsx"
 }
 
-$VALID_MODULES = @("upgrade", "wl-jboss26", "wl-jboss27", "wl-jboss", "wl14", "analyze", "merge")
+$VALID_MODULES = @("upgrade", "wl-jboss26", "wl-jboss27", "wl-jboss", "wl15", "wl14", "analyze", "merge")
 
 # ── Output helpers ─────────────────────────────────────────────────────────────
 function Write-Banner {
@@ -74,6 +83,16 @@ function Show-Help {
     Write-Host "                              wl-jboss27 - WebLogic to WildFly 27+ / EAP 8  (Java 21)"
     Write-Host "                              wl15       - WebLogic 15 library migration scan"
     Write-Host "                              wl14       - WebLogic 12 to 14.1.2 API migration scan (IBM Java 21 check first)"
+    Write-Host ""
+    Write-Host "    -Mode          <string>   Input mode: binary, repo, or both"
+    Write-Host "                             binary = -Input is compiled JAR/WAR/EAR file or directory"
+    Write-Host "                             repo   = -SourceInventory is the component workbook"
+    Write-Host "                             both   = -Input plus -SourceInventory in one report"
+    Write-Host "    -SourceInventory <xlsx>  Workbook with Component and Repository columns"
+    Write-Host "    -Workspace       <dir>     Checkout workspace (default: .ea-workspace)"
+    Write-Host "    -PromptCredentials         Prompt once for Git/SVN username/password; use for corporate SSO credentials"
+    Write-Host "    -CleanWorkspace            Delete existing component checkout before checkout"
+    Write-Host "    -NoReuseWorkspace          Re-checkout instead of updating existing workspaces"
     Write-Host "                              analyze    - IBM Transformation Advisor report"
     Write-Host "                              merge      - Merge ticket + component Excel files"
     Write-Host ""
@@ -96,13 +115,21 @@ function Show-Help {
     Write-Host "  EXAMPLES" -ForegroundColor White
     Write-Host ""
     Write-Host "    .\run.ps1"
-    Write-Host "    .\run.ps1 -Module upgrade    -Input C:\app\lib -Output report.xlsx"
+    Write-Host "    .\run.ps1 -Module upgrade    -Mode binary -Input C:\app\lib -Output report.xlsx"
+    Write-Host "    .\run.ps1 -Module upgrade    -Mode repo -SourceInventory ComponentList.xlsx -Output SourceInventory-Report.xlsx -PromptCredentials"
+    Write-Host "    .\run.ps1 -Module upgrade    -Mode both -Input C:\app\lib -SourceInventory ComponentList.xlsx -Output Upgrade-Combined.xlsx -PromptCredentials"
     Write-Host "    .\run.ps1 -Module upgrade    -JarList jars.txt -OpenReport"
     Write-Host "    .\run.ps1 -Module upgrade    -Input C:\app\lib -IbmScanner C:\tools\binaryAppScanner.jar"
-    Write-Host "    .\run.ps1 -Module wl-jboss26 -Input C:\app\lib"
-    Write-Host "    .\run.ps1 -Module wl-jboss27 -Input C:\app\lib"
-    Write-Host "    .\run.ps1 -Module wl15       -Input C:\app\lib"
-    Write-Host "    .\run.ps1 -Module wl14       -Input C:\app\lib -Output WL14-Migration-Report.xlsx"
+    Write-Host "    .\run.ps1 -Module wl-jboss26 -Mode binary -Input C:\app\lib"
+    Write-Host "    .\run.ps1 -Module wl-jboss26 -Mode repo -SourceInventory ComponentList.xlsx -Output SourceInventory-Report.xlsx -PromptCredentials"
+    Write-Host "    .\run.ps1 -Module wl-jboss26 -Mode both -Input C:\app\lib -SourceInventory ComponentList.xlsx -Output WlToJBoss26-Combined.xlsx -PromptCredentials"
+    Write-Host "    .\run.ps1 -Module wl-jboss27 -Mode binary -Input C:\app\lib"
+    Write-Host "    .\run.ps1 -Module wl-jboss27 -Mode repo -SourceInventory ComponentList.xlsx -Output SourceInventory-Report.xlsx -PromptCredentials"
+    Write-Host "    .\run.ps1 -Module wl-jboss27 -Mode both -Input C:\app\lib -SourceInventory ComponentList.xlsx -Output WlToJBoss27-Combined.xlsx -PromptCredentials"
+    Write-Host "    .\run.ps1 -Module wl15       -Mode binary -Input C:\app\lib"
+    Write-Host "    .\run.ps1 -Module wl15       -Mode repo -SourceInventory ComponentList.xlsx -Output SourceInventory-Report.xlsx -PromptCredentials"
+    Write-Host "    .\run.ps1 -Module wl14       -Mode binary -Input C:\app\lib -Output WL14-Migration-Report.xlsx"
+    Write-Host "    .\run.ps1 -Module wl14       -Mode repo -SourceInventory ComponentList.xlsx -Output SourceInventory-Report.xlsx -PromptCredentials"
     Write-Host "    .\run.ps1 -Module analyze"
     Write-Host "    .\run.ps1 -Module analyze -Input C:\reports\json -Output AnalyzerOutput.xlsx"
     Write-Host "    .\run.ps1 -Module merge -TicketFile tickets.xlsx -ComponentFile comp.xlsx"
@@ -277,7 +304,16 @@ function Prepare-ReportsFolder {
 
 # ── Build the java argument list ───────────────────────────────────────────────
 function Build-Args {
-    $javaArgs = @("--module=$Module")
+    $effectiveMode = $Mode
+    if ($effectiveMode -eq "") {
+        if ($SourceInventory -ne "") {
+            if ($InputPath -ne "" -or $JarList -ne "") { $effectiveMode = "both" } else { $effectiveMode = "repo" }
+        } else {
+            $effectiveMode = "binary"
+        }
+    }
+
+    $javaArgs = @("--module=$Module", "--mode=$effectiveMode")
 
     if ($Output -ne "") {
         $javaArgs += "--output=$Output"
@@ -285,9 +321,15 @@ function Build-Args {
         $javaArgs += "--output=$($DEFAULT_OUTPUT[$Module])"
     }
 
-    if ($InputPath     -ne "") { $javaArgs += "--input=$InputPath" }
+    if ($InputPath -ne "") { $javaArgs += "--input=$InputPath" }
     if ($JarList       -ne "") { $javaArgs += "--jar-list=$JarList" }
     if ($IbmScanner    -ne "") { $javaArgs += "--ibm-scanner=$IbmScanner" }
+    if ($SourceInventory -ne "") { $javaArgs += "--source-inventory=$SourceInventory" }
+    if ($Workspace -ne "") { $javaArgs += "--workspace=$Workspace" }
+    if ($PromptCredentials -or $effectiveMode -eq "repo" -or $effectiveMode -eq "both") { $javaArgs += "--prompt-credentials=true" }
+    if ($CleanWorkspace) { $javaArgs += "--clean-workspace=true" }
+    if ($NoReuseWorkspace) { $javaArgs += "--reuse-workspace=false" }
+    if ($FailOnCheckoutError) { $javaArgs += "--fail-on-checkout-error=true" }
     if ($TicketFile    -ne "") { $javaArgs += "--ticket-file=$TicketFile" }
     if ($ComponentFile -ne "") { $javaArgs += "--component-file=$ComponentFile" }
     if ($Config        -ne "") { $javaArgs += "--config=$Config" }

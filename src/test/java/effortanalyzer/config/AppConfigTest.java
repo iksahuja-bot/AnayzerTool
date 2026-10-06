@@ -189,6 +189,32 @@ class AppConfigTest {
         assertFalse(cfg.validate().isEmpty());
     }
 
+
+    @Test
+    void validateAllowsWl14WithSourceInventoryInsteadOfInput(@TempDir Path tmpDir) throws Exception {
+        Path inventory = tmpDir.resolve("ComponentList.xlsx");
+        java.nio.file.Files.writeString(inventory, "placeholder");
+        AppConfig cfg = AppConfig.parse(new String[]{
+                "--module=wl14",
+                "--mode=repo",
+                "--source-inventory=" + inventory,
+                "--prompt-credentials=true"
+        });
+        assertEquals("", cfg.validate());
+        assertTrue(cfg.isPromptCredentials());
+    }
+
+    @Test
+    void validateFailsWhenModuleSourceInventoryWorkbookIsMissing() {
+        AppConfig cfg = AppConfig.parse(new String[]{
+                "--module=wl15",
+                "--source-inventory=/nonexistent_xyz_abc/ComponentList.xlsx"
+        });
+        String error = cfg.validate();
+        assertFalse(error.isEmpty());
+        assertTrue(error.contains("source inventory workbook not found"));
+    }
+
     // ── Miscellaneous ────────────────────────────────────────────────────────
 
     @Test

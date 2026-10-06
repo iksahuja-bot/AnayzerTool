@@ -7,11 +7,23 @@
 #    ./run.sh
 #
 #  USAGE (with arguments):
-#    ./run.sh upgrade    /app/lib  report.xlsx
-#    ./run.sh wl15       /app/lib  WL15-Migration-Report.xlsx
-#    ./run.sh wl14       /app/lib  WL14-Migration-Report.xlsx
-#    ./run.sh wl-jboss26 /app/lib  migration-wf26.xlsx
-#    ./run.sh wl-jboss27 /app/lib  migration-wf27.xlsx
+#    ./run.sh <module> binary <compiled-input> [output-file]
+#    ./run.sh <module> repo   <component-workbook> [output-file]
+#    ./run.sh <module> both   <compiled-input> <component-workbook> [output-file]
+#
+#    ./run.sh upgrade    binary /app/lib  report.xlsx
+#    ./run.sh upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
+#    ./run.sh upgrade    both   /app/lib  ComponentList.xlsx Upgrade-Combined.xlsx
+#    ./run.sh wl15       binary /app/lib  WL15-Migration-Report.xlsx
+#    ./run.sh wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+#    ./run.sh wl14       binary /app/lib  WL14-Migration-Report.xlsx
+#    ./run.sh wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
+#    ./run.sh wl-jboss26 binary /app/lib  migration-wf26.xlsx
+#    ./run.sh wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+#    ./run.sh wl-jboss26 both   /app/lib  ComponentList.xlsx WlToJBoss26-Combined.xlsx
+#    ./run.sh wl-jboss27 binary /app/lib  migration-wf27.xlsx
+#    ./run.sh wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx
+#    ./run.sh wl-jboss27 both   /app/lib  ComponentList.xlsx WlToJBoss27-Combined.xlsx
 #    ./run.sh analyze    /path/to/json  ta-analysis.xlsx
 #    ./run.sh analyze                   ta-analysis.xlsx   (uses embedded reports)
 #    ./run.sh merge
@@ -104,10 +116,39 @@ check_jar() {
 
 # ── Run module ────────────────────────────────────────────────────────────────
 run_module() {
-  local module="$1" input="$2" output="$3"
+  local module="$1" input="$2" output="$3" source_inventory="${4:-}" extra_output="${5:-}"
 
-  JAVA_ARGS="--module=$module"
-  [ -n "$input"  ] && JAVA_ARGS="$JAVA_ARGS --input=$input"
+  local mode="binary"
+  local compiled_input="$input"
+  local inventory_input="$source_inventory"
+
+  if [[ "$input" =~ ^(binary|repo|both)$ ]]; then
+    mode="$input"
+    case "$mode" in
+      binary)
+        compiled_input="$output"
+        output="$source_inventory"
+        inventory_input=""
+        ;;
+      repo)
+        inventory_input="$output"
+        output="$source_inventory"
+        compiled_input=""
+        ;;
+      both)
+        compiled_input="$output"
+        output="${5:-}"
+        inventory_input="$source_inventory"
+        ;;
+    esac
+  elif [ -n "$source_inventory" ]; then
+    mode="both"
+  fi
+
+  JAVA_ARGS="--module=$module --mode=$mode"
+
+  [ -n "$compiled_input" ] && JAVA_ARGS="$JAVA_ARGS --input=$compiled_input"
+  [ -n "$inventory_input" ] && JAVA_ARGS="$JAVA_ARGS --source-inventory=$inventory_input --prompt-credentials=true"
   [ -n "$output" ] && JAVA_ARGS="$JAVA_ARGS --output=$output"
 
   echo ""
@@ -312,11 +353,11 @@ show_help() {
   echo ""
   echo "  USAGE"
   echo "    ./run.sh                                   Launch interactive menu"
-  echo "    ./run.sh upgrade    <input> [output]       Java 21 JVM + library upgrade scan"
-  echo "    ./run.sh wl15       <input> [output]       WebLogic 15 library migration scan"
-  echo "    ./run.sh wl14       <input> [output]       WebLogic 12 to 14.1.2 API migration scan (IBM Java 21 check first)"
-  echo "    ./run.sh wl-jboss26 <input> [output]       WebLogic to WildFly 26 / EAP 7.4 (Java 8)"
-  echo "    ./run.sh wl-jboss27 <input> [output]       WebLogic to WildFly 27+ / EAP 8 (Java 21)"
+  echo "    ./run.sh upgrade    <input> [output] [source-workbook]  Java 21 JVM + library upgrade scan"
+  echo "    ./run.sh wl15       <input> [output] [source-workbook]  WebLogic 15 migration scan"
+  echo "    ./run.sh wl14       <input> [output] [source-workbook]  WebLogic 12 to 14.1.2 migration scan"
+  echo "    ./run.sh wl-jboss26 <input> [output] [source-workbook]  WebLogic to WildFly 26 / EAP 7.4 (Java 8)"
+  echo "    ./run.sh wl-jboss27 <input> [output] [source-workbook]  WebLogic to WildFly 27+ / EAP 8 (Java 21)"
   echo "    ./run.sh analyze    [input]  [output]       IBM TA report analysis (input = JSON dir)"
   echo "    ./run.sh merge                             Excel merge (prompts for files)"
   echo "    ./run.sh help                              Show this help"
@@ -360,13 +401,27 @@ show_help() {
   echo ""
   echo "    merge       Merges a JIRA ticket report with a component list"
   echo ""
+  echo "    mode        Controls what kind of input the launcher expects for migration modules:"
+  echo "                binary = compiled JAR/WAR/EAR file or directory, passed as --input"
+  echo "                repo   = component workbook, passed as --source-inventory with credential prompt"
+  echo "                both   = compiled input plus component workbook in one report"
+  echo "                Workbook columns: Component, Repository, optional Type, Branch, Revision, Path, Enabled."
+  echo ""
   echo "  EXAMPLES"
-  echo "    ./run.sh upgrade    /opt/app/lib  Upgrade-Compatibility-Report.xlsx"
-  echo "    ./run.sh upgrade    /opt/app/lib  (IBM scanner auto-detected from same folder)"
-  echo "    ./run.sh wl15       /opt/app/lib  WL15-Migration-Report.xlsx"
-  echo "    ./run.sh wl14       /opt/app/lib  WL14-Migration-Report.xlsx"
-  echo "    ./run.sh wl-jboss26 /opt/app/lib  WlToJBoss-WildFly26-Report.xlsx"
-  echo "    ./run.sh wl-jboss27 /opt/app/lib  WlToJBoss-WildFly27-Report.xlsx"
+  echo "    ./run.sh upgrade    binary /opt/app/lib  Upgrade-Compatibility-Report.xlsx"
+  echo "    ./run.sh upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx"
+  echo "    ./run.sh upgrade    both   /opt/app/lib  ComponentList.xlsx Upgrade-Combined.xlsx"
+  echo "    ./run.sh wl15       binary /opt/app/lib  WL15-Migration-Report.xlsx"
+  echo "    ./run.sh wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx"
+  echo "    ./run.sh wl14       binary /opt/app/lib  WL14-Migration-Report.xlsx"
+  echo "    ./run.sh wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx"
+  echo "    ./run.sh wl14       both   /opt/app/lib  ComponentList.xlsx WL14-Combined.xlsx"
+  echo "    ./run.sh wl-jboss26 binary /opt/app/lib  WlToJBoss-WildFly26-Report.xlsx"
+  echo "    ./run.sh wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx"
+  echo "    ./run.sh wl-jboss26 both   /opt/app/lib  ComponentList.xlsx WlToJBoss26-Combined.xlsx"
+  echo "    ./run.sh wl-jboss27 binary /opt/app/lib  WlToJBoss-WildFly27-Report.xlsx"
+  echo "    ./run.sh wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx"
+  echo "    ./run.sh wl-jboss27 both   /opt/app/lib  ComponentList.xlsx WlToJBoss27-Combined.xlsx"
   echo "    ./run.sh analyze    /opt/reports/json  AnalyzerOutput.xlsx"
   echo "    ./run.sh analyze                       AnalyzerOutput.xlsx"
   echo ""
@@ -385,11 +440,11 @@ case "${1:-}" in
     show_help
     ;;
   upgrade|wl-jboss26|wl-jboss27|wl-jboss|wl15|wl14|analyze)
-    MODULE="${1}"; INPUT="${2:-}"; OUTPUT="${3:-}"
+    MODULE="${1}"; INPUT="${2:-}"; OUTPUT="${3:-}"; SOURCE_INVENTORY="${4:-}"; EXTRA_OUTPUT="${5:-}"
     find_java
     check_jar
     [ "$MODULE" = "upgrade" ] && prepare_reports_folder
-    run_module "$MODULE" "$INPUT" "$OUTPUT"
+    run_module "$MODULE" "$INPUT" "$OUTPUT" "$SOURCE_INVENTORY" "$EXTRA_OUTPUT"
     ;;
   merge)
     TICKET="${2:-}"; COMPONENT="${3:-}"; OUTPUT="${4:-}"

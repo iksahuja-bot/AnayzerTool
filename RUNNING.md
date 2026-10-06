@@ -32,6 +32,8 @@
 | ----------- | ------- | ------------------------------------------------------------ |
 | Java        | 21      | OpenJDK or Oracle JDK — must be on `PATH` or `JAVA_HOME` set |
 | Maven       | 3.8     | Required only if building from source                        |
+| SVN CLI     | Any current 1.x | Required only for `--source-inventory` rows with SVN repositories; verify with `svn --version` |
+| Git CLI     | Any current version | Required only for `--source-inventory` rows with Git repositories; verify with `git --version` |
 
 
 
@@ -55,6 +57,17 @@ Expected output (minimum):
 ```
 java version "21.x.x" ...
 ```
+
+### Check SVN access for source inventory
+
+If you will scan source from SVN, verify the SVN command-line client and your corporate network/session before running EffortAnalyzer:
+
+```bat
+svn --version
+svn info https://your-svn-host/path/to/repository
+```
+
+For corporate SSO-backed SVN, have your SSO username and password ready. EffortAnalyzer can prompt once and pass them to SVN with `--prompt-credentials=true`. The checkout/update commands are executed as `svn ... --non-interactive --trust-server-cert`, so complete any first-time certificate trust, VPN, MFA, or browser-based SSO bootstrap with a manual `svn info`/`svn checkout` first if your environment requires it.
 
 ---
 
@@ -850,9 +863,127 @@ input.path=/opt/app/lib
 
 # Output file
 output.file=Upgrade-Compatibility-Report.xlsx
+
+# Source inventory / SVN-Git-local source checkout scan with a migration rule profile
+# module=wl14
+# input.mode=repo
+# source.inventory.file=ComponentList.xlsx
+# source.workspace.dir=.ea-workspace
+# source.reuse.workspace=true
+# source.clean.workspace=false
+# source.fail.on.checkout.error=false
+# source.prompt.credentials=true
 ```
 
 See the bundled `analyzer.properties` for all available keys with descriptions.
+
+---
+
+## Source Inventory / SVN runbook
+
+Use this when your component workbook points to SVN repositories.
+
+### Workbook columns
+
+Required columns:
+
+| Column | Purpose |
+| ------ | ------- |
+| `Component` | Display name used in the report and workspace folder name |
+| `Repository` | SVN URL, Git URL, or local source path |
+
+Optional columns:
+
+| Column | Purpose |
+| ------ | ------- |
+| `Type` | `SVN`, `GIT`, or `LOCAL`; recommended for SVN rows |
+| `Branch` | Used by Git checkout; SVN branch should normally be part of the repository URL |
+| `Revision` | SVN revision number or Git revision/commit/tag to checkout/update |
+| `Path` | Subdirectory under the checked-out repository to scan |
+| `Enabled` | Set to `false`, `no`, or `0` to skip a row |
+
+### What you need for SVN
+
+1. Java 21+.
+2. The built EffortAnalyzer JAR in the same folder as the launcher scripts.
+3. `svn` available on `PATH` in the same shell that runs the tool.
+4. VPN/network access to the SVN server.
+5. Your corporate SSO username and password, unless your local SVN client already has valid cached credentials.
+6. A workbook with `Type=SVN` rows and valid SVN repository URLs.
+
+### Recommended Windows command
+
+Use the target migration module (`upgrade`, `wl14`, `wl15`, `wl-jboss26`, `wl-jboss27`, or `wl-jboss`) with explicit launcher mode `repo`. The launcher passes the component workbook as `--source-inventory`, not `--input`:
+
+```bat
+run.bat upgrade repo ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl14 repo ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl15 repo ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl-jboss26 repo ComponentList.xlsx SourceInventory-Report.xlsx
+run.bat wl-jboss27 repo ComponentList.xlsx SourceInventory-Report.xlsx
+```
+
+The Windows batch launcher automatically passes `--prompt-credentials=true` for `repo` and `both` runs.
+
+To combine compiled archive checks and repository source checks in one workbook, use mode `both`, pass the compiled input first, then the component workbook, then output:
+
+```bat
+run.bat upgrade both C:\apps\lib ComponentList.xlsx Upgrade-Combined.xlsx
+run.bat wl14 both C:\apps\lib ComponentList.xlsx WL14-Combined.xlsx
+run.bat wl-jboss26 both C:\apps\lib ComponentList.xlsx WlToJBoss26-Combined.xlsx
+run.bat wl-jboss27 both C:\apps\lib ComponentList.xlsx WlToJBoss27-Combined.xlsx
+```
+
+### Recommended PowerShell command
+
+```powershell
+.\run.ps1 -Module upgrade -Mode repo -SourceInventory "ComponentList.xlsx" -Output "SourceInventory-Report.xlsx" -PromptCredentials
+.\run.ps1 -Module wl14 -Mode repo -SourceInventory "ComponentList.xlsx" -Output "SourceInventory-Report.xlsx" -PromptCredentials
+.\run.ps1 -Module wl-jboss26 -Mode repo -SourceInventory "ComponentList.xlsx" -Output "SourceInventory-Report.xlsx" -PromptCredentials
+.\run.ps1 -Module upgrade -Mode both -Input "C:\apps\lib" -SourceInventory "ComponentList.xlsx" -Output "Upgrade-Combined.xlsx" -PromptCredentials
+.\run.ps1 -Module wl14 -Mode both -Input "C:\apps\lib" -SourceInventory "ComponentList.xlsx" -Output "WL14-Combined.xlsx" -PromptCredentials
+.\run.ps1 -Module wl-jboss26 -Mode both -Input "C:\apps\lib" -SourceInventory "ComponentList.xlsx" -Output "WlToJBoss26-Combined.xlsx" -PromptCredentials
+.\run.ps1 -Module wl-jboss27 -Mode both -Input "C:\apps\lib" -SourceInventory "ComponentList.xlsx" -Output "WlToJBoss27-Combined.xlsx" -PromptCredentials
+```
+
+### Direct Java command
+
+```bat
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl-jboss26 ^
+  --mode=repo ^
+  --source-inventory=ComponentList.xlsx ^
+  --prompt-credentials=true ^
+  --workspace=.ea-workspace ^
+  --output=SourceInventory-Report.xlsx
+```
+
+Combined direct Java example:
+
+```bat
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=upgrade ^
+  --mode=both ^
+  --input=C:\apps\lib ^
+  --source-inventory=ComponentList.xlsx ^
+  --prompt-credentials=true ^
+  --output=Upgrade-Combined.xlsx
+```
+
+Useful source-inventory options:
+
+| Option | Default | Notes |
+| ------ | ------- | ----- |
+| `--source-inventory=<xlsx>` | none | Component workbook to read |
+| `--workspace=<dir>` | `.ea-workspace` | Checkout/update location |
+| `--reuse-workspace=true|false` | `true` | Reuses existing `.svn`/`.git` working trees and runs update/fetch |
+| `--clean-workspace=true|false` | `false` | Deletes each component checkout before checkout; useful after corrupted or wrong-revision working copies |
+| `--fail-on-checkout-error=true|false` | `false` | Stop immediately on first checkout error instead of writing the error sheet |
+| `--prompt-credentials=true|false` | `false` | Prompt once for username/password and pass them to Git/SVN commands |
+
+Source-only workbook sheets are `Source Inventory`, `Source Findings`, and `Checkout Errors`.
+
+Combined runs (`--mode=both`, or direct Java `--input` plus `--source-inventory`) first create the normal compiled-analysis workbook, then append/replace `Source Inventory`, `Source Findings`, and `Checkout Errors` sheets in that same output file.
+
+> Important: `--module=<migration-module> --mode=repo --source-inventory=...` uses that module's source-scan rule profile. Use `upgrade` for upgrade library rules, `wl14`/`wl15` for WebLogic library rules, and `wl-jboss26`/`wl-jboss27`/`wl-jboss` for WebLogic-to-JBoss rules.
 
 ---
 
@@ -886,6 +1017,45 @@ The IBM scanner was not found at runtime. See the troubleshooting entry above.
 ---
 
 
+
+### SVN command not found / checkout fails
+
+If source inventory rows use SVN, EffortAnalyzer shells out to the `svn` executable.
+
+- Install an SVN command-line client such as TortoiseSVN command line tools, SlikSVN, CollabNet SVN, or your corporate-standard SVN client.
+- Open the same Command Prompt/PowerShell you will use for EffortAnalyzer and run `svn --version`.
+- If `svn` is installed but not found, add its `bin` folder to `PATH` and reopen the terminal.
+
+---
+
+### SVN authentication / corporate SSO failures
+
+Use `--prompt-credentials=true` so EffortAnalyzer asks once for your corporate SSO username and password and passes them to SVN as `--username` and `--password`.
+
+If authentication still fails:
+
+- Confirm VPN/network access to the SVN host.
+- Run `svn info <repo-url>` manually first to complete first-time certificate trust, MFA, or browser/SSO bootstrap.
+- Verify the URL in the workbook points to a checkoutable SVN path, not only a web UI URL.
+- If the password contains special characters, prefer PowerShell/direct Java prompting over embedding credentials in a command line.
+- Check the `Checkout Errors` sheet for the exact SVN message.
+
+---
+
+### Source inventory workspace has stale or wrong files
+
+By default, `--reuse-workspace=true` updates existing checkouts under `.ea-workspace`. Use one of these when you need a clean run:
+
+```bat
+java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl14 ^
+  --source-inventory=ComponentList.xlsx ^
+  --prompt-credentials=true ^
+  --clean-workspace=true
+```
+
+You can also delete `.ea-workspace` manually.
+
+---
 
 ### Java not found
 

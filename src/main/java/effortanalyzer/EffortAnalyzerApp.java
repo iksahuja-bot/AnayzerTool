@@ -6,6 +6,9 @@ import effortanalyzer.analyzer.ReportAnalyzer;
 import effortanalyzer.config.AnalyzerConfig;
 import effortanalyzer.config.AppConfig;
 import effortanalyzer.merger.TicketComponentMerger;
+import effortanalyzer.source.CheckoutCredentials;
+import effortanalyzer.source.SourceInventoryAnalyzer;
+import effortanalyzer.source.SourceScanProfile;
 import effortanalyzer.upgrade.UpgradeAnalyzer;
 import effortanalyzer.wl14.Wl14Analyzer;
 import effortanalyzer.wl15.Wl15Analyzer;
@@ -63,6 +66,7 @@ public class EffortAnalyzerApp {
                 case AppConfig.MODULE_WL14       -> runWl14(cfg);
                 case AppConfig.MODULE_ANALYZE    -> runAnalyze(cfg);
                 case AppConfig.MODULE_MERGE      -> runMerge(cfg);
+                case AppConfig.MODULE_SOURCE_INVENTORY -> runSourceInventory(cfg);
                 case AppConfig.MODULE_WL_JBOSS26 -> runWlJBoss(cfg, WlJBossRules.TargetProfile.WILDFLY26_JAVA8);
                 case AppConfig.MODULE_WL_JBOSS27 -> runWlJBoss(cfg, WlJBossRules.TargetProfile.WILDFLY27_JAVA21);
                 case AppConfig.MODULE_WL_JBOSS   -> runWlJBoss(cfg, WlJBossRules.TargetProfile.from(cfg.getWlJBossTarget()));
@@ -82,6 +86,11 @@ public class EffortAnalyzerApp {
     // ── Module: wl15 ──────────────────────────────────────────────────────────
 
     private static void runWl15(AppConfig cfg) throws Exception {
+        if (hasSourceInventory(cfg) && !hasCompiledInput(cfg)) {
+            runSourceInventory(cfg);
+            return;
+        }
+
         String inputPath = cfg.getJarListFile().isBlank()
                 ? cfg.getInputPath()
                 : expandJarList(cfg.getJarListFile());
@@ -89,12 +98,18 @@ public class EffortAnalyzerApp {
         Wl15Analyzer analyzer = new Wl15Analyzer(cfg.getLibraryVersionsFile());
         analyzer.analyze(inputPath);
         analyzer.generateReport(cfg.getOutputFile());
+        if (hasSourceInventory(cfg)) appendSourceInventory(cfg);
         logger.info("WL15 library migration analysis complete → {}", cfg.getOutputFile());
     }
 
     // ── Module: wl14 ──────────────────────────────────────────────────────────
 
     private static void runWl14(AppConfig cfg) throws Exception {
+        if (hasSourceInventory(cfg) && !hasCompiledInput(cfg)) {
+            runSourceInventory(cfg);
+            return;
+        }
+
         String inputPath = cfg.getJarListFile().isBlank()
                 ? cfg.getInputPath()
                 : expandJarList(cfg.getJarListFile());
@@ -104,6 +119,7 @@ public class EffortAnalyzerApp {
         Wl14Analyzer analyzer = new Wl14Analyzer(cfg.getLibraryVersionsFile(), ibmScanner);
         analyzer.analyze(inputPath);
         analyzer.generateReport(cfg.getOutputFile());
+        if (hasSourceInventory(cfg)) appendSourceInventory(cfg);
         logger.info("WL14 library migration analysis complete → {}", cfg.getOutputFile());
     }
 
@@ -140,9 +156,82 @@ public class EffortAnalyzerApp {
         merger.merge();
     }
 
+    // ── Module: source-inventory ──────────────────────────────────────────────
+
+    private static void runSourceInventory(AppConfig cfg) throws Exception {
+        SourceScanProfile profile = SourceScanProfile.forModule(
+                cfg.getModule(),
+                WlJBossRules.TargetProfile.from(cfg.getWlJBossTarget())
+        );
+        SourceInventoryAnalyzer analyzer = new SourceInventoryAnalyzer(
+                Path.of(cfg.getSourceInventoryFile()),
+                Path.of(cfg.getWorkspaceDir()),
+                cfg.isReuseWorkspace(),
+                cfg.isCleanWorkspace(),
+                cfg.isFailOnCheckoutError(),
+                profile,
+                promptCredentials(cfg)
+        );
+        analyzer.run(cfg.getOutputFile());
+    }
+
+    private static boolean hasSourceInventory(AppConfig cfg) {
+        return cfg.getSourceInventoryFile() != null && !cfg.getSourceInventoryFile().isBlank();
+    }
+
+    private static boolean hasCompiledInput(AppConfig cfg) {
+        return (cfg.getInputPath() != null && !cfg.getInputPath().isBlank())
+                || (cfg.getJarListFile() != null && !cfg.getJarListFile().isBlank());
+    }
+
+    private static void appendSourceInventory(AppConfig cfg) throws Exception {
+        SourceScanProfile profile = SourceScanProfile.forModule(
+                cfg.getModule(),
+                WlJBossRules.TargetProfile.from(cfg.getWlJBossTarget())
+        );
+        SourceInventoryAnalyzer analyzer = new SourceInventoryAnalyzer(
+                Path.of(cfg.getSourceInventoryFile()),
+                Path.of(cfg.getWorkspaceDir()),
+                cfg.isReuseWorkspace(),
+                cfg.isCleanWorkspace(),
+                cfg.isFailOnCheckoutError(),
+                profile,
+                promptCredentials(cfg)
+        );
+        analyzer.appendToReport(cfg.getOutputFile());
+    }
+
+    private static CheckoutCredentials promptCredentials(AppConfig cfg) throws IOException {
+        if (!cfg.isPromptCredentials()) return CheckoutCredentials.none();
+
+        Console console = System.console();
+        String username;
+        String password;
+        if (console != null) {
+            username = console.readLine("SCM username (blank to use existing Git/SVN credentials): ");
+            if (username == null || username.isBlank()) return CheckoutCredentials.none();
+            char[] chars = console.readPassword("SCM password/token: ");
+            password = chars == null ? "" : new String(chars);
+            if (chars != null) Arrays.fill(chars, '\0');
+        } else {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+            System.out.print("SCM username (blank to use existing Git/SVN credentials): ");
+            username = reader.readLine();
+            if (username == null || username.isBlank()) return CheckoutCredentials.none();
+            System.out.print("SCM password/token (input may be visible in this terminal): ");
+            password = reader.readLine();
+        }
+        return new CheckoutCredentials(username.trim(), password == null ? "" : password);
+    }
+
     // ── Module: upgrade ───────────────────────────────────────────────────────
 
     private static void runUpgrade(AppConfig cfg) throws Exception {
+        if (hasSourceInventory(cfg) && !hasCompiledInput(cfg)) {
+            runSourceInventory(cfg);
+            return;
+        }
+
         String ibmScanner = resolveIbmScanner(cfg.getIbmScannerJar());
 
         UpgradeAnalyzer analyzer = new UpgradeAnalyzer(ibmScanner);
@@ -151,6 +240,7 @@ public class EffortAnalyzerApp {
                 : expandJarList(cfg.getJarListFile());
         analyzer.analyze(inputPath);
         analyzer.generateReport(cfg.getOutputFile());
+        if (hasSourceInventory(cfg)) appendSourceInventory(cfg);
         logger.info("Upgrade compatibility analysis complete → {}", cfg.getOutputFile());
     }
 
@@ -197,6 +287,11 @@ public class EffortAnalyzerApp {
     // ── Module: wl-jboss26 / wl-jboss27 / wl-jboss (legacy) ─────────────────
 
     private static void runWlJBoss(AppConfig cfg, WlJBossRules.TargetProfile target) throws Exception {
+        if (hasSourceInventory(cfg) && !hasCompiledInput(cfg)) {
+            runSourceInventory(cfg);
+            return;
+        }
+
         WlJBossAnalyzer analyzer = new WlJBossAnalyzer(target);
 
         if (!cfg.getJarListFile().isBlank()) {
@@ -206,6 +301,7 @@ public class EffortAnalyzerApp {
         } else {
             analyzer.run(cfg.getInputPath(), cfg.getOutputFile());
         }
+        if (hasSourceInventory(cfg)) appendSourceInventory(cfg);
     }
 
     /**
