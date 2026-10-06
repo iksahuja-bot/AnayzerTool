@@ -550,9 +550,9 @@ absent the sheet is empty and a download hint is shown). After the Java 21 check
 the scan runs the general library upgrade rules (Spring, Guava, Guice, Jersey,
 CGLib) plus WL14-specific deprecated WebLogic API rules (T3StartupDef,
 T3ShutdownDef, MessageLogger, TrustManager, HostnameVerifier), plus bundled-library
-version checks. Produces a 7-sheet Excel report with the `☕ Java 21 Issues (IBM)`
-sheet and the Library Issues sheet grouped by archive/component. All
-`wl15` arguments — including `--library-versions` — apply.
+version checks. Produces an 8-sheet Excel report with the `☕ Java 21 Issues (IBM)`
+and `🏛 WebLogic API Issues` sheets; the Library Issues sheet is grouped by
+archive/component. All `wl15` arguments — including `--library-versions` — apply.
 
 
 | Argument            | Required | Description                                                     |

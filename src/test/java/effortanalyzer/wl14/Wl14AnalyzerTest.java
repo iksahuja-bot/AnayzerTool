@@ -56,10 +56,12 @@ class Wl14AnalyzerTest {
 
         try (FileInputStream fis = new FileInputStream(out.toFile());
              Workbook wb = new XSSFWorkbook(fis)) {
-            assertEquals(7, wb.getNumberOfSheets(),
-                    "WL14 report must have 7 sheets including the IBM Java 21 Issues sheet");
+            assertEquals(8, wb.getNumberOfSheets(),
+                    "WL14 report must have 8 sheets including IBM Java 21 and WebLogic API Issues sheets");
             assertNotNull(wb.getSheet("☕ Java 21 Issues (IBM)"),
                     "Java 21 Issues sheet expected for WL14");
+            assertNotNull(wb.getSheet("🏛 WebLogic API Issues"),
+                    "WebLogic API Issues sheet expected for WL14");
             assertNotNull(wb.getSheet("🔢 Library Versions"), "Library Versions sheet expected");
             var versions = wb.getSheet("🔢 Library Versions");
             assertTrue(versions.getRow(0).getCell(0).getStringCellValue().startsWith("WL14"),

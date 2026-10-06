@@ -343,7 +343,7 @@ show_help() {
   echo "                  First runs IBM binaryAppScanner.jar (auto-detected) for Java 21 compatibility."
   echo "                  Then runs general library upgrade checks plus WebLogic 14 specific deprecated API checks"
   echo "                  (T3StartupDef, T3ShutdownDef, MessageLogger, TrustManager, HostnameVerifier)"
-  echo "                  Output: 7-sheet Excel with WL14 identity and IBM Java 21 Issues sheet"
+  echo "                  Output: 8-sheet Excel with WL14 identity, IBM Java 21, and WebLogic API Issues sheets"
   echo ""
   echo "    wl-jboss26  WebLogic migration targeting:"
   echo "                WildFly 26 / JBoss EAP 7.4  --  Java 8  --  javax.*"
