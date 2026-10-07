@@ -14,21 +14,23 @@ import java.util.List;
 public record SourceScanProfile(
         String module,
         List<DeprecatedApi> libraryRules,
-        WlJBossRules wlJBossRules
+        WlJBossRules wlJBossRules,
+        List<Java21SourceRule> java21Rules
 ) {
 
     public static SourceScanProfile forModule(String module, WlJBossRules.TargetProfile targetProfile) {
         String normalized = module == null ? "" : module.trim().toLowerCase();
         return switch (normalized) {
-            case "wl14" -> new SourceScanProfile(normalized, wl14Rules(), null);
-            case "wl15" -> new SourceScanProfile(normalized, Wl15LibraryRules.load(), null);
+            case "wl14" -> new SourceScanProfile(normalized, wl14Rules(), null, loadJava21Rules());
+            case "wl15" -> new SourceScanProfile(normalized, Wl15LibraryRules.load(), null, List.of());
             case "upgrade", "source-inventory" -> new SourceScanProfile(normalized,
-                    LibraryUpgradeRules.load(UpgradeAnalyzer.loadAllExclusions()).getRules(), null);
+                    LibraryUpgradeRules.load(UpgradeAnalyzer.loadAllExclusions()).getRules(), null, loadJava21Rules());
             case "wl-jboss26" -> new SourceScanProfile(normalized, List.of(),
-                    WlJBossRules.load(WlJBossRules.TargetProfile.WILDFLY26_JAVA8));
+                    WlJBossRules.load(WlJBossRules.TargetProfile.WILDFLY26_JAVA8), List.of());
             case "wl-jboss27" -> new SourceScanProfile(normalized, List.of(),
-                    WlJBossRules.load(WlJBossRules.TargetProfile.WILDFLY27_JAVA21));
-            case "wl-jboss" -> new SourceScanProfile(normalized, List.of(), WlJBossRules.load(targetProfile));
+                    WlJBossRules.load(WlJBossRules.TargetProfile.WILDFLY27_JAVA21), loadJava21Rules());
+            case "wl-jboss" -> new SourceScanProfile(normalized, List.of(), WlJBossRules.load(targetProfile),
+                    targetProfile == WlJBossRules.TargetProfile.WILDFLY26_JAVA8 ? List.of() : loadJava21Rules());
             default -> throw new IllegalArgumentException("Source inventory is not supported for module: " + module);
         };
     }
@@ -41,10 +43,18 @@ public record SourceScanProfile(
         return wlJBossRules != null;
     }
 
+    public boolean hasJava21Rules() {
+        return java21Rules != null && !java21Rules.isEmpty();
+    }
+
     private static List<DeprecatedApi> wl14Rules() {
         List<DeprecatedApi> combined = new ArrayList<>();
         combined.addAll(LibraryUpgradeRules.load(UpgradeAnalyzer.loadAllExclusions()).getRules());
         combined.addAll(Wl14LibraryRules.load());
         return combined;
+    }
+
+    private static List<Java21SourceRule> loadJava21Rules() {
+        return Java21SourceRules.load().getRules();
     }
 }

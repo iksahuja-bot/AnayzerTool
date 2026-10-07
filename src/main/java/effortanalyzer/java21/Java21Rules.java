@@ -231,24 +231,12 @@ public class Java21Rules {
                 + "  ctx.eval(\"js\", \"console.log('hello')\");",
                 "15", ScanMode.BOTH, "RemovedNashornJSEngine");
 
-        add("JR-009", "JAVA_REMOVED", "javax.script.ScriptEngineManager", "MEDIUM",
-                "ScriptEngineManager is still present but Nashorn (the default JS engine) is removed in Java 15. "
-                + "Code that creates a ScriptEngine named 'JavaScript' or 'nashorn' will get null at runtime.",
-                "Replace Nashorn with GraalVM JavaScript. Check the engine name: use 'js' for GraalVM.",
-                "15", ScanMode.BOTH, "RemovedNashornJSEngine");
-
         // ── JEP 407: Remove RMI Activation (Java 17) ─────────────────────────
         add("JR-010", "JAVA_REMOVED", "java.rmi.activation", "CRITICAL",
                 "RMI Activation (java.rmi.activation.*) was removed in Java 17 (JEP 407). "
                 + "ActivationGroup, ActivationDesc, Activatable are all gone.",
                 "Remove all RMI Activation usage. Replace with EJB remote, REST services, "
                 + "or message-driven beans depending on the use case.",
-                "17", ScanMode.BOTH, "RemovedRMIActivation");
-
-        add("JR-011", "JAVA_REMOVED", "java.rmi.server.UnicastRemoteObject", "MEDIUM",
-                "UnicastRemoteObject remains in Java 21 but the broader RMI Activation system "
-                + "it relied on is gone. Existing IIOP-based patterns will not work.",
-                "Migrate remote communication to EJB 3.x @Remote, REST (JAX-RS), or JMS.",
                 "17", ScanMode.BOTH, "RemovedRMIActivation");
 
         // ── JEP 398: Deprecate/Remove Applet API (Java 17) ───────────────────
@@ -317,10 +305,30 @@ public class Java21Rules {
                 "11", ScanMode.BOTH, "RemovedJavaFX");
 
         // ── JEP 320: Remove java.transaction module (Java 11) ────────────────
-        add("JR-020", "JAVA_REMOVED", "javax.transaction", "HIGH",
-                "javax.transaction.* (JTA) was bundled in the JDK's java.transaction module which "
-                + "was removed in Java 11 (JEP 320). Code that relies on the JDK-provided JTA classes "
-                + "will throw NoClassDefFoundError at runtime.",
+        // javax.transaction.xa remains in Java SE 21 (java.transaction.xa), so do not use a broad
+        // javax.transaction package rule here.
+        addRemovedTransactionRule("JR-020", "javax.transaction.UserTransaction");
+        addRemovedTransactionRule("JR-020A", "javax.transaction.TransactionManager");
+        addRemovedTransactionRule("JR-020B", "javax.transaction.Transactional");
+        addRemovedTransactionRule("JR-020C", "javax.transaction.TransactionScoped");
+        addRemovedTransactionRule("JR-020D", "javax.transaction.TransactionRequiredException");
+        addRemovedTransactionRule("JR-020E", "javax.transaction.TransactionRolledbackException");
+        addRemovedTransactionRule("JR-020F", "javax.transaction.Transaction");
+        addRemovedTransactionRule("JR-020G", "javax.transaction.Synchronization");
+        addRemovedTransactionRule("JR-020H", "javax.transaction.RollbackException");
+        addRemovedTransactionRule("JR-020I", "javax.transaction.SystemException");
+        addRemovedTransactionRule("JR-020J", "javax.transaction.NotSupportedException");
+        addRemovedTransactionRule("JR-020K", "javax.transaction.HeuristicCommitException");
+        addRemovedTransactionRule("JR-020L", "javax.transaction.HeuristicMixedException");
+        addRemovedTransactionRule("JR-020M", "javax.transaction.HeuristicRollbackException");
+        addRemovedTransactionRule("JR-020N", "javax.transaction.InvalidTransactionException");
+        addRemovedTransactionRule("JR-020O", "javax.transaction.Status");
+    }
+
+    private void addRemovedTransactionRule(String id, String apiPattern) {
+        add(id, "JAVA_REMOVED", apiPattern, "HIGH",
+                "JTA APIs outside javax.transaction.xa were bundled in the JDK's java.transaction module, "
+                + "which was removed in Java 11 (JEP 320). javax.transaction.xa remains in Java SE 21.",
                 "Add an explicit JTA dependency:\n"
                 + "  <dependency>\n"
                 + "    <groupId>jakarta.transaction</groupId>\n"

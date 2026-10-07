@@ -75,7 +75,7 @@ public class Java21Analyzer {
                 .toList();
         this.compiledBytecodeRules = allRules.stream()
                 .filter(r -> r.scanMode() != Java21Rules.ScanMode.SOURCE)
-                .map(r -> new CompiledRule(r, r.bytecodePattern(), r.apiPattern()))
+                .map(CompiledRule::new)
                 .toList();
         logger.info("Loaded {} Java 21 compatibility rules{}",
                 allRules.size(),
@@ -204,7 +204,7 @@ public class Java21Analyzer {
     private void scanBytecode(String jarName, String entryName, byte[] bytes) {
         List<String> poolStrings = constantPoolUtf8Strings(bytes);
         for (CompiledRule cr : compiledBytecodeRules) {
-            if (containsAny(poolStrings, cr.bytecodePattern, cr.apiPattern)) {
+            if (containsAny(poolStrings, cr)) {
                 recordFinding(jarName, entryName, cr.rule, entryName);
             }
         }
@@ -212,7 +212,7 @@ public class Java21Analyzer {
 
     private void scanSourceText(String jarName, String entryName, String content) {
         for (Java21Rules.Rule rule : sourceRules) {
-            if (content.contains(rule.apiPattern())) {
+            if (containsSourcePattern(content, rule.apiPattern())) {
                 recordFinding(jarName, entryName, rule, entryName);
             }
         }
@@ -224,11 +224,16 @@ public class Java21Analyzer {
                      .add(new Finding(jarName, location, rule, context));
     }
 
-    private static boolean containsAny(List<String> poolStrings, String a, String b) {
+    private static boolean containsAny(List<String> poolStrings, CompiledRule cr) {
         for (String s : poolStrings) {
-            if ((!a.isEmpty() && s.contains(a)) || (!b.isEmpty() && s.contains(b))) return true;
+            if (cr.matches(s)) return true;
         }
         return false;
+    }
+
+    private static boolean containsSourcePattern(String value, String pattern) {
+        if (value == null || pattern == null || pattern.isEmpty()) return false;
+        return CompiledRule.matchesPattern(value, pattern, CompiledRule.isPackagePattern(pattern));
     }
 
     /**
@@ -272,8 +277,47 @@ public class Java21Analyzer {
         }
     }
 
-    /** Holds the two patterns derived from a rule so they are computed only once. */
-    private record CompiledRule(Java21Rules.Rule rule, String bytecodePattern, String apiPattern) {}
+    /** Holds derived patterns so they are computed once and matched with class-name boundaries. */
+    private record CompiledRule(Java21Rules.Rule rule, String bytecodePattern, String apiPattern, boolean packagePattern) {
+        private CompiledRule(Java21Rules.Rule rule) {
+            this(rule, rule.bytecodePattern(), rule.apiPattern(), isPackagePattern(rule.apiPattern()));
+        }
+
+        private boolean matches(String value) {
+            return matchesPattern(value, bytecodePattern, packagePattern)
+                    || matchesPattern(value, apiPattern, packagePattern);
+        }
+
+        private static boolean matchesPattern(String value, String pattern, boolean packagePattern) {
+            if (value == null || pattern == null || pattern.isEmpty()) return false;
+            int index = value.indexOf(pattern);
+            while (index >= 0) {
+                int end = index + pattern.length();
+                if (hasPatternBoundary(value, end, pattern, packagePattern)) return true;
+                index = value.indexOf(pattern, index + 1);
+            }
+            return false;
+        }
+
+        private static boolean hasPatternBoundary(String value, int end, String pattern, boolean packagePattern) {
+            if (end >= value.length()) return true;
+            if (pattern.endsWith(".") || pattern.endsWith("/")) return true;
+
+            char next = value.charAt(end);
+            if (packagePattern && (next == '.' || next == '/')) return true;
+            return next != '.' && next != '/' && next != '$'
+                    && !Character.isLetterOrDigit(next) && next != '_';
+        }
+
+        private static boolean isPackagePattern(String pattern) {
+            if (pattern == null || pattern.isBlank()) return false;
+            if (pattern.endsWith(".") || pattern.endsWith("/")) return true;
+            String normalized = pattern.replace('/', '.');
+            int dot = normalized.lastIndexOf('.');
+            String lastSegment = dot >= 0 ? normalized.substring(dot + 1) : normalized;
+            return !lastSegment.isEmpty() && Character.isLowerCase(lastSegment.charAt(0));
+        }
+    }
 
     // ──────────────────────────────────────────────────────────────────────────
     // Console summary
