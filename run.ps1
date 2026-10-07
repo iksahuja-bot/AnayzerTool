@@ -9,6 +9,9 @@
 #    .\run.ps1 -Module wl-jboss27 -Input "C:\lib"
 #    .\run.ps1 -Module analyze
 #    .\run.ps1 -Module wl14 -Mode repo -SourceInventory "ComponentList.xlsx" -PromptCredentials
+#    .\run.ps1 -Module wl14 -Mode both -Input "C:\lib" -SourceInventory "ComponentList.xlsx" -Output "WL14-Combined.xlsx" -PromptCredentials
+#      Source inventory workbooks may include Generated JARs, Application Packages, and Ownership
+#      columns to correlate source findings with generated JAR bytecode.
 #    .\run.ps1 -Module merge -TicketFile "tickets.xlsx" -ComponentFile "comp.xlsx"
 #    .\run.ps1 -Help
 # =============================================================================
@@ -87,8 +90,11 @@ function Show-Help {
     Write-Host "    -Mode          <string>   Input mode: binary, repo, or both"
     Write-Host "                             binary = -Input is compiled JAR/WAR/EAR file or directory"
     Write-Host "                             repo   = -SourceInventory is the component workbook"
-    Write-Host "                             both   = -Input plus -SourceInventory in one report"
+    Write-Host "                             both   = -Input is artifact lookup repo; scan only -SourceInventory Generated JARs"
     Write-Host "    -SourceInventory <xlsx>  Workbook with Component and Repository columns"
+    Write-Host "                             Optional: Generated JARs, Application Packages, Ownership"
+    Write-Host "                             Generated JARs may be filenames or relative paths from checkout root or -Input"
+    Write-Host "                             Generated JAR bytecode confirms findings; source-only findings remain candidates"
     Write-Host "    -Workspace       <dir>     Checkout workspace (default: .ea-workspace)"
     Write-Host "    -PromptCredentials         Prompt once for Git/SVN username/password; use for corporate SSO credentials"
     Write-Host "    -CleanWorkspace            Delete existing component checkout before checkout"
@@ -97,7 +103,7 @@ function Show-Help {
     Write-Host "                              merge      - Merge ticket + component Excel files"
     Write-Host ""
     Write-Host "    -Input         <path>     JAR/WAR/EAR file or directory of archives"
-    Write-Host "                             (required for: upgrade, wl-jboss26, wl-jboss27, wl15, wl14)"
+    Write-Host "                             (required for binary mode; artifact repository only in both mode)"
     Write-Host "                             (optional  for: analyze — directory of IBM TA *.json reports)"
     Write-Host "    -IbmScanner    <path>     Path to binaryAppScanner.jar"
     Write-Host "                             (upgrade only; default: auto-detect from script folder)"
@@ -130,6 +136,7 @@ function Show-Help {
     Write-Host "    .\run.ps1 -Module wl15       -Mode repo -SourceInventory ComponentList.xlsx -Output SourceInventory-Report.xlsx -PromptCredentials"
     Write-Host "    .\run.ps1 -Module wl14       -Mode binary -Input C:\app\lib -Output WL14-Migration-Report.xlsx"
     Write-Host "    .\run.ps1 -Module wl14       -Mode repo -SourceInventory ComponentList.xlsx -Output SourceInventory-Report.xlsx -PromptCredentials"
+    Write-Host "    .\run.ps1 -Module wl14       -Mode both -Input C:\app\lib -SourceInventory ComponentList.xlsx -Output WL14-Combined.xlsx -PromptCredentials"
     Write-Host "    .\run.ps1 -Module analyze"
     Write-Host "    .\run.ps1 -Module analyze -Input C:\reports\json -Output AnalyzerOutput.xlsx"
     Write-Host "    .\run.ps1 -Module merge -TicketFile tickets.xlsx -ComponentFile comp.xlsx"

@@ -30,19 +30,37 @@ public class RepositoryCheckoutService {
     }
 
     public CheckoutResult checkout(SourceComponent component) {
-        Path target = workspace.resolve(safeName(component.displayName()) + "-r" + component.rowNumber());
+        return checkout(component, component.repository(), component.branch(), component.revision(), "");
+    }
+
+    public CheckoutResult checkoutTrunk(SourceComponent component) {
+        if (component.trunk().isBlank()) {
+            return CheckoutResult.failure(component, null, "TRUNK_NOT_PROVIDED", "No Trunk value was supplied");
+        }
+        return checkout(component, component.trunk(), RepositoryType.from("", component.trunk()), "", "", "-trunk");
+    }
+
+    private CheckoutResult checkout(SourceComponent component, String repository, String branch, String revision, String targetSuffix) {
+        return checkout(component, repository, component.type(), branch, revision, targetSuffix);
+    }
+
+    private CheckoutResult checkout(SourceComponent component, String repository, RepositoryType type, String branch, String revision, String targetSuffix) {
+        SourceComponent checkoutComponent = new SourceComponent(component.component(), repository, component.trunk(),
+                type, branch, revision, component.path(), component.enabled(), component.rowNumber(),
+                component.generatedJars(), component.applicationPackages(), component.ownership());
+        Path target = workspace.resolve(safeName(component.displayName()) + targetSuffix + "-r" + component.rowNumber());
         try {
             Files.createDirectories(workspace);
             if (cleanWorkspace && Files.exists(target)) deleteRecursively(target);
 
-            return switch (component.type()) {
-                case LOCAL -> prepareLocal(component, target);
-                case GIT -> prepareGit(component, target);
-                case SVN -> prepareSvn(component, target);
+            return switch (checkoutComponent.type()) {
+                case LOCAL -> prepareLocal(checkoutComponent, target);
+                case GIT -> prepareGit(checkoutComponent, target);
+                case SVN -> prepareSvn(checkoutComponent, target);
             };
         } catch (Exception e) {
             logger.warn("Checkout failed for {}: {}", component.displayName(), e.getMessage());
-            return CheckoutResult.failure(component, target, "ERROR", e.getMessage());
+            return CheckoutResult.failure(checkoutComponent, target, "ERROR", e.getMessage());
         }
     }
 

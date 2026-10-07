@@ -11,25 +11,28 @@ setlocal EnableDelayedExpansion
 ::  USAGE (with arguments):
 ::    run.bat <module> binary <compiled-input> [output-file]
 ::    run.bat <module> repo   <component-workbook> [output-file]
-::    run.bat <module> both   <compiled-input> <component-workbook> [output-file]
+::    run.bat <module> both   <component-workbook> [output-file]
 ::
 ::    run.bat upgrade    binary C:\app\lib  report.xlsx
 ::    run.bat upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
-::    run.bat upgrade    both   C:\app\lib  ComponentList.xlsx Upgrade-Combined.xlsx
+::    run.bat upgrade    both   ComponentList.xlsx Upgrade-Combined.xlsx
 ::    run.bat wl15       binary C:\app\lib  WL15-Migration-Report.xlsx
 ::    run.bat wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
 ::    run.bat wl14       binary C:\app\lib  WL14-Migration-Report.xlsx
 ::    run.bat wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
 ::    run.bat wl-jboss26 binary C:\app\lib  migration26.xlsx
 ::    run.bat wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
-::    run.bat wl-jboss26 both   C:\app\lib  ComponentList.xlsx WlToJBoss26-Combined.xlsx
+::    run.bat wl-jboss26 both   ComponentList.xlsx WlToJBoss26-Combined.xlsx
 ::    run.bat wl-jboss27 binary C:\app\lib  migration27.xlsx
 ::    run.bat wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx
-::    run.bat wl-jboss27 both   C:\app\lib  ComponentList.xlsx WlToJBoss27-Combined.xlsx
+::    run.bat wl-jboss27 both   ComponentList.xlsx WlToJBoss27-Combined.xlsx
 ::    run.bat analyze    C:\reports\json  ta-analysis.xlsx
 ::    run.bat analyze                     ta-analysis.xlsx   (uses embedded reports)
 ::    run.bat merge
 ::    run.bat help
+::
+::  Source inventory workbooks may include Generated JARs, Application Packages,
+::  and Ownership columns to correlate source findings with generated JAR bytecode.
 ::
 ::  Arguments: [module] [input-path] [output-file]
 :: =============================================================================
@@ -109,9 +112,17 @@ if /i "%~2"=="repo" (
 )
 if /i "%~2"=="both" (
     set "ARG_MODE=both"
-    set "ARG_INPUT=%~3"
-    set "ARG_SOURCE_INVENTORY=%~4"
-    set "ARG_OUTPUT=%~5"
+    if not "%~5"=="" (
+        rem Backward-compatible old form: both compiled-input component-workbook output-file.
+        rem The Java app now scopes binary scanning to Generated JARs from the workbook.
+        set "ARG_INPUT=%~3"
+        set "ARG_SOURCE_INVENTORY=%~4"
+        set "ARG_OUTPUT=%~5"
+    ) else (
+        set "ARG_INPUT="
+        set "ARG_SOURCE_INVENTORY=%~3"
+        set "ARG_OUTPUT=%~4"
+    )
     set "ARG_EXTRA_OUTPUT="
 )
 call :find_java
@@ -454,21 +465,27 @@ echo.
 echo     mode        Controls what kind of input the launcher expects for migration modules:
 echo                 binary = compiled JAR/WAR/EAR file or directory, passed as --input
 echo                 repo   = component workbook, passed as --source-inventory with credential prompt
-echo                 both   = compiled input plus component workbook in one report
+echo                 both   = source workbook plus binary scan of its Generated JARs only
+echo                          Optional syntax: both ^<compiled-input^> ^<workbook.xlsx^> ^<output.xlsx^>
+echo                          The compiled input is searched only for workbook-declared Generated JARs.
 echo                 Workbook columns: Component, Repository, optional Type, Branch, Revision, Path, Enabled.
+echo                 Optional correlation columns: Generated JARs, Application Packages, Ownership.
+echo                 Generated JARs entries may be filenames or relative paths from the checkout root
+echo                 or from the compiled-input directory passed to both mode.
+echo                 Generated JAR bytecode confirms findings; source-only findings remain candidates.
 echo.
 echo     merge       Merges JIRA ticket report with a component list
 echo.
 echo   EXAMPLES
 echo     run.bat upgrade    binary C:\app\lib   Upgrade-Compatibility-Report.xlsx
 echo     run.bat upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
-echo     run.bat upgrade    both   C:\app\lib   ComponentList.xlsx Upgrade-Combined.xlsx
+echo     run.bat upgrade    both   ComponentList.xlsx Upgrade-Combined.xlsx
 echo     run.bat wl15       binary C:\app\lib   WL15-Migration-Report.xlsx
 echo     run.bat wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
 echo     run.bat wl14       binary C:\app\lib   WL14-Migration-Report.xlsx
 echo     run.bat wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
 echo     run.bat --module=wl14 --mode=repo --source-inventory=C:\app\ComponentList.xlsx --prompt-credentials=true --output=SourceInventory-Report.xlsx
-echo     run.bat wl14       both   C:\app\lib   ComponentList.xlsx WL14-Combined.xlsx
+echo     run.bat wl14       both   ComponentList.xlsx WL14-Combined.xlsx
 echo     run.bat wl-jboss26 binary C:\app\lib   WlToJBoss-WildFly26-Report.xlsx
 echo     run.bat wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
 echo     run.bat wl-jboss26 both   C:\app\lib   ComponentList.xlsx WlToJBoss26-Combined.xlsx

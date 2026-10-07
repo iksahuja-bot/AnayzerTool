@@ -27,8 +27,8 @@ A suite of analysis tools for migration planning, API deprecation detection, and
 - **SVN command-line client** — required only when `--source-inventory` rows use SVN repositories. Verify with `svn --version`.
 - **Git command-line client** — required only when `--source-inventory` rows use Git repositories. Verify with `git --version`.
 - **Corporate repository access** — for SVN over corporate SSO, have your SSO username/password available and run with `--prompt-credentials=true`.
-- **`binaryAppScanner.jar`** — required for the `upgrade` module's Java 21 scan  
-  Download free from: <https://www.ibm.com/support/pages/migration-toolkit-application-binaries>  
+- **`binaryAppScanner.jar`** — required for the `upgrade` module's Java 21 scan
+  Download free from: <https://www.ibm.com/support/pages/migration-toolkit-application-binaries>
   Place it in the same folder as `EffortAnalyzer-2.0.0-shaded.jar`.
 
 ### Build
@@ -242,8 +242,8 @@ false "outdated" alarms.
 | **⏱ Effort Analysis** | Estimated remediation hours per JAR with subtotals and grand total |
 | **🔢 Library Versions** | Every rule-matched bundled artifact: detected vs. target version, OUTDATED/OK status, severity and upgrade action |
 
-**Required argument:** `--input=<path>` — path to a JAR/WAR/EAR or directory  
-**Optional:** `--library-versions=<file>` — custom version target table  
+**Required argument:** `--input=<path>` — path to a JAR/WAR/EAR or directory
+**Optional:** `--library-versions=<file>` — custom version target table
 **Default output:** `WL15-Migration-Report.xlsx`
 
 ```bat
@@ -270,8 +270,8 @@ HostnameVerifier), plus bundled-library version checks. The 8-sheet Excel report
 is labelled for **WL14** and includes the `☕ Java 21 Issues (IBM)` and
 `🏛 WebLogic API Issues` sheets; the Library Issues sheet is grouped by archive/component.
 
-**Required argument:** `--input=<path>` — path to a JAR/WAR/EAR or directory  
-**Optional:** `--library-versions=<file>` — custom version target table  
+**Required argument:** `--input=<path>` — path to a JAR/WAR/EAR or directory
+**Optional:** `--library-versions=<file>` — custom version target table
 **Default output:** `WL14-Migration-Report.xlsx`
 
 ```bat
@@ -317,7 +317,7 @@ Reads IBM Transformation Advisor JSON analysis reports and produces a consolidat
 grouped Excel workbook. Findings are grouped by component and rule. Configurable rule
 exclusions suppress commonly informational items.
 
-**`--input=<dir>`** (optional) — directory containing IBM TA `*.json` report files.  
+**`--input=<dir>`** (optional) — directory containing IBM TA `*.json` report files.
 If omitted, the bundled `reports/` folder inside the JAR is used.
 
 Configure via `analyzer.properties`.
@@ -532,7 +532,19 @@ To test WL14/WL15 compatibility checks against SVN repositories using `--source-
 2. `svn` installed and available on `PATH` (`svn --version` should work in the same terminal used to run EffortAnalyzer).
 3. Network/VPN access to the corporate SVN host.
 4. Your corporate SSO username and password, unless the SVN client already has valid cached credentials.
-5. A component workbook with at least `Component` and `Repository` columns. Use `Type=SVN` for SVN rows when the repository URL is not self-evident. Optional columns are `Branch`, `Revision`, `Path`, and `Enabled`.
+5. A component workbook with at least `Component` and `Repository` columns. Use `Type=SVN` for SVN rows when the repository URL is not self-evident. Optional columns are `Branch`, `Revision`, `Path`, `Enabled`, `Generated JARs`, `Application Packages`, and `Ownership`.
+
+Source inventory workbooks can now correlate source findings with bytecode from generated build artifacts:
+
+| Column | Purpose |
+|--------|---------|
+| `Generated JARs` | Optional comma/semicolon/newline-separated filenames, paths, or glob patterns for JAR/WAR/EAR files produced by that source tree. Relative paths are resolved first from the checked-out component and, in `both` mode, from the compiled input directory passed on the command line. Matching bytecode raises confidence for source findings and can add bytecode-only findings. |
+| `Application Packages` | Optional comma/semicolon/newline-separated package prefixes, for example `com.example, org.example.app`, used to focus generated-JAR bytecode correlation on application classes. |
+| `Ownership` | Optional team/system note carried into `Source Inventory` and `Source Findings` to support triage and assignment. |
+
+In `both` mode, the compiled input directory is an artifact lookup repository, not the binary scan scope. For example, `run.bat wl14 both C:\Development\Documents\EffortAnalyzer\Jars ComponentList.xlsx WL14-Combined.xlsx` scans source from the enabled workbook rows, then copies only the artifacts named in those rows' `Generated JARs` cells from `C:\Development\Documents\EffortAnalyzer\Jars` into a temporary binary scan directory. If a workbook cell contains `platform-abstraction-layer.jar` or `target/platform-abstraction-layer.jar`, both can resolve to `C:\Development\Documents\EffortAnalyzer\Jars\platform-abstraction-layer.jar`.
+
+If `Generated JARs` is blank, EffortAnalyzer still reports source-only findings as candidates. Bytecode evidence updates `Detection Source`, `Validation Status`, `Confidence`, `Matched In Bytecode`, `Matched JARs`, and `Matched Classes`; it does **not** suppress source-only findings.
 
 Recommended WL14 command for a corporate SSO-backed SVN source scan:
 
@@ -546,10 +558,10 @@ For WL15, use the same workbook with the WL15 rule profile:
 run.bat wl15 repo ComponentList.xlsx SourceInventory-Report.xlsx
 ```
 
-For a combined compiled + repository report, use `both` and pass compiled archives first, then the component workbook:
+For a combined source + binary report, use `both`. In this mode the component workbook is the source of truth: EffortAnalyzer checks out enabled components and runs binary/IBM scans only on artifacts listed in each row's `Generated JARs` column.
 
 ```bat
-run.bat wl14 both C:\apps\lib ComponentList.xlsx WL14-Combined.xlsx
+run.bat wl14 both C:\Development\Documents\EffortAnalyzer\Jars ComponentList.xlsx WL14-Combined.xlsx
 ```
 
 or directly:
@@ -564,6 +576,15 @@ java -jar EffortAnalyzer-2.0.0-shaded.jar --module=wl14 ^
 ```
 
 Use `--mode=repo` for source-only scanning and `--mode=both` for compiled + source scanning. The migration module (`upgrade`, `wl14`, `wl15`, or `wl-jboss*`) determines which source-rule profile is applied.
+
+For source-inventory rows with a `Trunk` value, EffortAnalyzer also prepares the trunk/reference source in `.ea-workspace` alongside the fixable/current checkout. The workbook exposes both source locations for remediation workflows:
+
+- `Source Inventory`: `Checkout Status`, `Checkout Path`, `Trunk Checkout Status`, and `Trunk Checkout Path`.
+- `🎯 Action Items`: `Fixable Source Location`, `Trunk Source Location`, and `Trunk Fix Guidance`.
+- hidden `Action Items Raw`: normalized `fixable_source_url`, `fixable_source_path`, `trunk_source_url`, `trunk_source_path`, and `trunk_checkout_status` fields for scripts/skills.
+- `Checkout Errors`: distinct current and trunk checkout failures.
+
+The tool does not automatically copy code from trunk. Treat the fixable source path as the patch target and the trunk source path as read-only comparison input for a developer or remediation skill.
 
 `--prompt-credentials=true` prompts once and passes the supplied username/password to SVN as `--username` and `--password`. The SVN command is run non-interactively with `--trust-server-cert`, so if your organization requires a first-time certificate acceptance or MFA/browser login, run one manual `svn checkout` or `svn info` first to complete that setup.
 
@@ -585,6 +606,7 @@ Use `--mode=repo` for source-only scanning and `--mode=both` for compiled + sour
 | SVN checkout fails / `svn` not found | Install the SVN CLI and verify `svn --version` works in the terminal used to run the tool |
 | SVN authentication fails | Use `--prompt-credentials=true`; if corporate SSO requires MFA/browser login, first run `svn info <repo-url>` or `svn checkout <repo-url>` manually to seed credentials/certificates |
 | Source inventory report has checkout errors | Review the `Checkout Errors` sheet and `.ea-workspace`; use `--clean-workspace=true` to force fresh checkouts |
+| Source finding is `CANDIDATE_SOURCE_ONLY` | This means no matching generated-JAR bytecode was configured or found. Populate `Generated JARs` and `Application Packages`, then re-run after the component builds successfully. |
 | Out of memory during scan | Add `-Xmx2g` before `-jar` |
 
 For full troubleshooting, setup instructions, and report reading guide see **[RUNNING.md](RUNNING.md)**.

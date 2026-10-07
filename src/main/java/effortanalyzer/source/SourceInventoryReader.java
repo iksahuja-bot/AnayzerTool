@@ -35,22 +35,33 @@ public class SourceInventoryReader {
                 if (component.isBlank() && repository.isBlank()) continue;
                 if (repository.isBlank()) continue;
 
+                String trunk = value(row, optional(columns, "trunk", "trunkurl", "trunkrepository", "latesttrunk"));
                 String enabledValue = value(row, optional(columns, "enabled"));
                 boolean enabled = enabledValue.isBlank() || isEnabled(enabledValue);
                 String typeValue = value(row, optional(columns, "type", "repositorytype", "repository_type", "scm"));
                 String branch = value(row, optional(columns, "branch", "tag"));
                 String revision = value(row, optional(columns, "revision", "rev", "commit"));
                 String path = value(row, optional(columns, "path", "subpath", "sourcepath", "source_path"));
+                String generatedJars = value(row, optional(columns,
+                        "generatedjars", "generatedartifacts", "artifacts", "jars", "jarpaths", "generatedbinaries"));
+                String applicationPackages = value(row, optional(columns,
+                        "applicationpackages", "apppackages", "packages", "packageprefixes", "ownedpackages"));
+                String ownership = value(row, optional(columns,
+                        "ownership", "ownertype", "codeownership", "scope"));
 
                 components.add(new SourceComponent(
                         component.trim(),
                         repository,
+                        trunk,
                         RepositoryType.from(typeValue, repository),
                         branch.trim(),
                         revision.trim(),
                         path.trim(),
                         enabled,
-                        r + 1));
+                        r + 1,
+                        splitSemicolonList(generatedJars),
+                        splitSemicolonList(applicationPackages),
+                        ownership));
             }
         }
 
@@ -94,5 +105,13 @@ public class SourceInventoryReader {
     private static boolean isEnabled(String value) {
         String v = value.trim().toLowerCase(Locale.ROOT);
         return !(v.equals("false") || v.equals("no") || v.equals("n") || v.equals("0") || v.equals("disabled") || v.equals("skip"));
+    }
+
+    private static List<String> splitSemicolonList(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        return Arrays.stream(value.split("[;,\\r\\n]+"))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
     }
 }

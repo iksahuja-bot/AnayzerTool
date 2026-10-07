@@ -20,10 +20,19 @@ public class SourceInventoryAnalyzer {
     private final boolean failOnCheckoutError;
     private final SourceScanProfile scanProfile;
     private final CheckoutCredentials credentials;
+    private final List<Path> artifactRoots;
 
     public SourceInventoryAnalyzer(Path inventoryFile, Path workspace, boolean reuseWorkspace,
                                    boolean cleanWorkspace, boolean failOnCheckoutError,
                                    SourceScanProfile scanProfile, CheckoutCredentials credentials) {
+        this(inventoryFile, workspace, reuseWorkspace, cleanWorkspace, failOnCheckoutError,
+                scanProfile, credentials, List.of());
+    }
+
+    public SourceInventoryAnalyzer(Path inventoryFile, Path workspace, boolean reuseWorkspace,
+                                   boolean cleanWorkspace, boolean failOnCheckoutError,
+                                   SourceScanProfile scanProfile, CheckoutCredentials credentials,
+                                   List<Path> artifactRoots) {
         this.inventoryFile = inventoryFile;
         this.workspace = workspace;
         this.reuseWorkspace = reuseWorkspace;
@@ -31,6 +40,7 @@ public class SourceInventoryAnalyzer {
         this.failOnCheckoutError = failOnCheckoutError;
         this.scanProfile = scanProfile;
         this.credentials = credentials == null ? CheckoutCredentials.none() : credentials;
+        this.artifactRoots = artifactRoots == null ? List.of() : List.copyOf(artifactRoots);
     }
 
     public void run(String outputFile) throws IOException {
@@ -45,30 +55,41 @@ public class SourceInventoryAnalyzer {
         logger.info("Source inventory sheets appended: {} components", results.size());
     }
 
-    private List<SourceScanResult> scanInventory() throws IOException {
+    public List<SourceScanResult> scanInventory() throws IOException {
         List<SourceComponent> inventory = new SourceInventoryReader().read(inventoryFile);
         RepositoryCheckoutService checkoutService = new RepositoryCheckoutService(workspace, reuseWorkspace, cleanWorkspace, credentials);
         SourceTreeScanner scanner = new SourceTreeScanner(scanProfile);
+        GeneratedArtifactScanner artifactScanner = new GeneratedArtifactScanner(scanProfile);
         List<SourceScanResult> results = new ArrayList<>();
 
         for (SourceComponent component : inventory) {
             if (!component.enabled()) {
                 CheckoutResult skipped = CheckoutResult.failure(component, null, "SKIPPED", "Inventory row disabled");
-                results.add(new SourceScanResult(component, skipped, 0, List.of()));
+                results.add(new SourceScanResult(component, skipped, trunkSkipped(component), 0, List.of(), List.of()));
                 continue;
             }
 
             logger.info("Preparing source component: {}", component.displayName());
             CheckoutResult checkout = checkoutService.checkout(component);
             if (!checkout.success()) {
-                results.add(new SourceScanResult(component, checkout, 0, List.of()));
+                results.add(new SourceScanResult(component, checkout, trunkSkipped(component), 0, List.of(), List.of()));
                 if (failOnCheckoutError) {
                     throw new IOException("Checkout failed for " + component.displayName() + ": " + checkout.message());
                 }
                 continue;
             }
-            results.add(scanner.scan(checkout));
+            CheckoutResult trunkCheckout = checkoutService.checkoutTrunk(component);
+            SourceScanResult sourceResult = scanner.scan(checkout);
+            List<GeneratedArtifactScanner.BytecodeFinding> bytecodeFindings = artifactScanner.scan(component, checkout.checkoutPath(), artifactRoots);
+            results.add(new SourceScanResult(component, checkout, trunkCheckout, sourceResult.filesScanned(), sourceResult.findings(), bytecodeFindings));
         }
         return results;
+    }
+
+    private static CheckoutResult trunkSkipped(SourceComponent component) {
+        if (component.trunk().isBlank()) {
+            return CheckoutResult.failure(component, null, "TRUNK_NOT_PROVIDED", "No Trunk value was supplied");
+        }
+        return CheckoutResult.failure(component, null, "TRUNK_SKIPPED", "Current source checkout did not complete; trunk checkout was skipped");
     }
 }

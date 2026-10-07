@@ -7,8 +7,10 @@ import effortanalyzer.config.AnalyzerConfig;
 import effortanalyzer.config.AppConfig;
 import effortanalyzer.merger.TicketComponentMerger;
 import effortanalyzer.source.CheckoutCredentials;
+import effortanalyzer.source.GeneratedArtifactScanner;
 import effortanalyzer.source.SourceInventoryAnalyzer;
 import effortanalyzer.source.SourceScanProfile;
+import effortanalyzer.source.SourceScanResult;
 import effortanalyzer.upgrade.UpgradeAnalyzer;
 import effortanalyzer.wl14.Wl14Analyzer;
 import effortanalyzer.wl15.Wl15Analyzer;
@@ -91,6 +93,17 @@ public class EffortAnalyzerApp {
             return;
         }
 
+        if (isBothMode(cfg)) {
+            try (InventoryScopedScan scoped = prepareInventoryScopedScan(cfg)) {
+                Wl15Analyzer analyzer = new Wl15Analyzer(cfg.getLibraryVersionsFile());
+                analyzer.analyze(scoped.binaryInputPath());
+                analyzer.generateReport(cfg.getOutputFile());
+                appendSourceInventory(cfg, scoped.sourceResults());
+            }
+            logger.info("WL15 inventory-scoped combined analysis complete → {}", cfg.getOutputFile());
+            return;
+        }
+
         String inputPath = cfg.getJarListFile().isBlank()
                 ? cfg.getInputPath()
                 : expandJarList(cfg.getJarListFile());
@@ -107,6 +120,18 @@ public class EffortAnalyzerApp {
     private static void runWl14(AppConfig cfg) throws Exception {
         if (hasSourceInventory(cfg) && !hasCompiledInput(cfg)) {
             runSourceInventory(cfg);
+            return;
+        }
+
+        if (isBothMode(cfg)) {
+            try (InventoryScopedScan scoped = prepareInventoryScopedScan(cfg)) {
+                String ibmScanner = resolveIbmScanner(cfg.getIbmScannerJar());
+                Wl14Analyzer analyzer = new Wl14Analyzer(cfg.getLibraryVersionsFile(), ibmScanner);
+                analyzer.analyze(scoped.binaryInputPath());
+                analyzer.generateReport(cfg.getOutputFile());
+                appendSourceInventory(cfg, scoped.sourceResults());
+            }
+            logger.info("WL14 inventory-scoped combined analysis complete → {}", cfg.getOutputFile());
             return;
         }
 
@@ -159,20 +184,32 @@ public class EffortAnalyzerApp {
     // ── Module: source-inventory ──────────────────────────────────────────────
 
     private static void runSourceInventory(AppConfig cfg) throws Exception {
-        SourceScanProfile profile = SourceScanProfile.forModule(
+        SourceInventoryAnalyzer analyzer = createSourceInventoryAnalyzer(cfg);
+        analyzer.run(cfg.getOutputFile());
+    }
+
+    private static SourceScanProfile buildSourceScanProfile(AppConfig cfg) {
+        return SourceScanProfile.forModule(
                 cfg.getModule(),
                 WlJBossRules.TargetProfile.from(cfg.getWlJBossTarget())
         );
-        SourceInventoryAnalyzer analyzer = new SourceInventoryAnalyzer(
+    }
+
+    private static SourceInventoryAnalyzer createSourceInventoryAnalyzer(AppConfig cfg) throws IOException {
+        return createSourceInventoryAnalyzer(cfg, List.of());
+    }
+
+    private static SourceInventoryAnalyzer createSourceInventoryAnalyzer(AppConfig cfg, List<Path> artifactRoots) throws IOException {
+        return new SourceInventoryAnalyzer(
                 Path.of(cfg.getSourceInventoryFile()),
                 Path.of(cfg.getWorkspaceDir()),
                 cfg.isReuseWorkspace(),
                 cfg.isCleanWorkspace(),
                 cfg.isFailOnCheckoutError(),
-                profile,
-                promptCredentials(cfg)
+                buildSourceScanProfile(cfg),
+                promptCredentials(cfg),
+                artifactRoots
         );
-        analyzer.run(cfg.getOutputFile());
     }
 
     private static boolean hasSourceInventory(AppConfig cfg) {
@@ -184,21 +221,95 @@ public class EffortAnalyzerApp {
                 || (cfg.getJarListFile() != null && !cfg.getJarListFile().isBlank());
     }
 
+    private static boolean isBothMode(AppConfig cfg) {
+        return hasSourceInventory(cfg)
+                && ("both".equalsIgnoreCase(cfg.getMode()) || (cfg.getMode().isBlank() && hasCompiledInput(cfg)));
+    }
+
     private static void appendSourceInventory(AppConfig cfg) throws Exception {
-        SourceScanProfile profile = SourceScanProfile.forModule(
-                cfg.getModule(),
-                WlJBossRules.TargetProfile.from(cfg.getWlJBossTarget())
-        );
-        SourceInventoryAnalyzer analyzer = new SourceInventoryAnalyzer(
-                Path.of(cfg.getSourceInventoryFile()),
-                Path.of(cfg.getWorkspaceDir()),
-                cfg.isReuseWorkspace(),
-                cfg.isCleanWorkspace(),
-                cfg.isFailOnCheckoutError(),
-                profile,
-                promptCredentials(cfg)
-        );
+        SourceInventoryAnalyzer analyzer = createSourceInventoryAnalyzer(cfg);
         analyzer.appendToReport(cfg.getOutputFile());
+    }
+
+    private static void appendSourceInventory(AppConfig cfg, List<SourceScanResult> results) throws Exception {
+        new effortanalyzer.source.SourceInventoryReportWriter().append(
+                cfg.getOutputFile(), buildSourceScanProfile(cfg).module(), results);
+    }
+
+    private static InventoryScopedScan prepareInventoryScopedScan(AppConfig cfg) throws Exception {
+        List<Path> artifactRoots = bothModeArtifactRoots(cfg);
+        SourceInventoryAnalyzer sourceAnalyzer = createSourceInventoryAnalyzer(cfg, artifactRoots);
+        List<SourceScanResult> sourceResults = sourceAnalyzer.scanInventory();
+        Path binaryInput = copyInventoryGeneratedArtifacts(sourceResults, artifactRoots);
+        return new InventoryScopedScan(sourceResults, binaryInput);
+    }
+
+    private static List<Path> bothModeArtifactRoots(AppConfig cfg) throws IOException {
+        List<Path> roots = new ArrayList<>();
+        if (cfg.getInputPath() != null && !cfg.getInputPath().isBlank()) {
+            roots.add(Path.of(cfg.getInputPath()).toAbsolutePath().normalize());
+        }
+        if (cfg.getJarListFile() != null && !cfg.getJarListFile().isBlank()) {
+            try (BufferedReader reader = Files.newBufferedReader(Path.of(cfg.getJarListFile()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    if (line.isBlank() || line.startsWith("#")) continue;
+                    roots.add(Path.of(line).toAbsolutePath().normalize());
+                }
+            }
+        }
+        return roots;
+    }
+
+    private static Path copyInventoryGeneratedArtifacts(List<SourceScanResult> results, List<Path> artifactRoots) throws IOException {
+        Path tempDir = Files.createTempDirectory("ea-inventory-jars-");
+        int copied = 0;
+        Map<String, Integer> names = new HashMap<>();
+
+        for (SourceScanResult result : results) {
+            if (result == null || result.component() == null || result.checkout() == null || !result.checkout().success()) {
+                continue;
+            }
+            List<Path> artifacts = GeneratedArtifactScanner.resolveGeneratedArtifacts(
+                    result.component(), result.checkout().checkoutPath(), artifactRoots);
+            for (Path artifact : artifacts) {
+                String fileName = safeFilePrefix(result.component().displayName()) + "--" + artifact.getFileName();
+                int duplicate = names.merge(fileName, 1, Integer::sum);
+                String targetName = duplicate == 1 ? fileName : duplicate + "-" + fileName;
+                Files.copy(artifact, tempDir.resolve(targetName), StandardCopyOption.REPLACE_EXISTING);
+                copied++;
+            }
+        }
+
+        if (copied == 0) {
+            deleteDir(tempDir);
+            throw new IOException("No generated JAR/WAR/EAR files were found from enabled source inventory rows. "
+                    + "Populate the Generated JARs column and either build the components or pass a compiled artifact directory "
+                    + "as --input / run.bat <module> both <compiled-input> <component-workbook> <output-file>.");
+        }
+
+        logger.info("Inventory-scoped binary scan input prepared with {} artifact(s): {}", copied, tempDir);
+        System.out.println("  [both] Inventory-scoped binary scan: " + copied + " generated artifact(s) from ComponentList.xlsx"
+                + (artifactRoots == null || artifactRoots.isEmpty() ? "" : " and supplied compiled input"));
+        return tempDir;
+    }
+
+    private static String safeFilePrefix(String value) {
+        String safe = value == null ? "component" : value.trim().replaceAll("[^A-Za-z0-9._-]+", "-");
+        safe = safe.replaceAll("^-+|-+$", "");
+        return safe.isBlank() ? "component" : safe;
+    }
+
+    private record InventoryScopedScan(List<SourceScanResult> sourceResults, Path binaryInput) implements AutoCloseable {
+        String binaryInputPath() {
+            return binaryInput.toString();
+        }
+
+        @Override
+        public void close() {
+            deleteDir(binaryInput);
+        }
     }
 
     private static CheckoutCredentials promptCredentials(AppConfig cfg) throws IOException {
@@ -233,6 +344,17 @@ public class EffortAnalyzerApp {
         }
 
         String ibmScanner = resolveIbmScanner(cfg.getIbmScannerJar());
+
+        if (isBothMode(cfg)) {
+            try (InventoryScopedScan scoped = prepareInventoryScopedScan(cfg)) {
+                UpgradeAnalyzer analyzer = new UpgradeAnalyzer(ibmScanner);
+                analyzer.analyze(scoped.binaryInputPath());
+                analyzer.generateReport(cfg.getOutputFile());
+                appendSourceInventory(cfg, scoped.sourceResults());
+            }
+            logger.info("Upgrade inventory-scoped combined analysis complete → {}", cfg.getOutputFile());
+            return;
+        }
 
         UpgradeAnalyzer analyzer = new UpgradeAnalyzer(ibmScanner);
         String inputPath = cfg.getJarListFile().isBlank()
@@ -293,6 +415,15 @@ public class EffortAnalyzerApp {
         }
 
         WlJBossAnalyzer analyzer = new WlJBossAnalyzer(target);
+
+        if (isBothMode(cfg)) {
+            try (InventoryScopedScan scoped = prepareInventoryScopedScan(cfg)) {
+                analyzer.run(scoped.binaryInputPath(), cfg.getOutputFile());
+                appendSourceInventory(cfg, scoped.sourceResults());
+            }
+            logger.info("WL-JBoss inventory-scoped combined analysis complete → {}", cfg.getOutputFile());
+            return;
+        }
 
         if (!cfg.getJarListFile().isBlank()) {
             String tempDir = expandJarList(cfg.getJarListFile());

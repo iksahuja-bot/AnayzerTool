@@ -13,21 +13,24 @@
 #
 #    ./run.sh upgrade    binary /app/lib  report.xlsx
 #    ./run.sh upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx
-#    ./run.sh upgrade    both   /app/lib  ComponentList.xlsx Upgrade-Combined.xlsx
+#    ./run.sh upgrade    both   /app/lib ComponentList.xlsx Upgrade-Combined.xlsx
 #    ./run.sh wl15       binary /app/lib  WL15-Migration-Report.xlsx
 #    ./run.sh wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx
 #    ./run.sh wl14       binary /app/lib  WL14-Migration-Report.xlsx
 #    ./run.sh wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx
 #    ./run.sh wl-jboss26 binary /app/lib  migration-wf26.xlsx
 #    ./run.sh wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx
-#    ./run.sh wl-jboss26 both   /app/lib  ComponentList.xlsx WlToJBoss26-Combined.xlsx
+#    ./run.sh wl-jboss26 both   /app/lib ComponentList.xlsx WlToJBoss26-Combined.xlsx
 #    ./run.sh wl-jboss27 binary /app/lib  migration-wf27.xlsx
 #    ./run.sh wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx
-#    ./run.sh wl-jboss27 both   /app/lib  ComponentList.xlsx WlToJBoss27-Combined.xlsx
+#    ./run.sh wl-jboss27 both   /app/lib ComponentList.xlsx WlToJBoss27-Combined.xlsx
 #    ./run.sh analyze    /path/to/json  ta-analysis.xlsx
 #    ./run.sh analyze                   ta-analysis.xlsx   (uses embedded reports)
 #    ./run.sh merge
 #    ./run.sh help
+#
+#  Source inventory workbooks may include Generated JARs, Application Packages,
+#  and Ownership columns to correlate source findings with generated JAR bytecode.
 #
 #  Arguments: [module] [input-path] [output-file]
 # =============================================================================
@@ -136,9 +139,17 @@ run_module() {
         compiled_input=""
         ;;
       both)
-        compiled_input="$output"
-        output="${5:-}"
-        inventory_input="$source_inventory"
+        if [ -n "$extra_output" ]; then
+          # Backward-compatible old form: both <compiled-input> <component-workbook> <output-file>.
+          # The Java app now scopes binary scanning to Generated JARs from the workbook.
+          compiled_input="$output"
+          inventory_input="$source_inventory"
+          output="$extra_output"
+        else
+          compiled_input=""
+          inventory_input="$output"
+          output="$source_inventory"
+        fi
         ;;
     esac
   elif [ -n "$source_inventory" ]; then
@@ -353,11 +364,10 @@ show_help() {
   echo ""
   echo "  USAGE"
   echo "    ./run.sh                                   Launch interactive menu"
-  echo "    ./run.sh upgrade    <input> [output] [source-workbook]  Java 21 JVM + library upgrade scan"
-  echo "    ./run.sh wl15       <input> [output] [source-workbook]  WebLogic 15 migration scan"
-  echo "    ./run.sh wl14       <input> [output] [source-workbook]  WebLogic 12 to 14.1.2 migration scan"
-  echo "    ./run.sh wl-jboss26 <input> [output] [source-workbook]  WebLogic to WildFly 26 / EAP 7.4 (Java 8)"
-  echo "    ./run.sh wl-jboss27 <input> [output] [source-workbook]  WebLogic to WildFly 27+ / EAP 8 (Java 21)"
+  echo "    ./run.sh <module> binary <compiled-input> [output-file]"
+  echo "    ./run.sh <module> repo   <component-workbook> [output-file]"
+  echo "    ./run.sh <module> both   <compiled-input> <component-workbook> [output-file]"
+  echo "      modules: upgrade, wl15, wl14, wl-jboss26, wl-jboss27, wl-jboss"
   echo "    ./run.sh analyze    [input]  [output]       IBM TA report analysis (input = JSON dir)"
   echo "    ./run.sh merge                             Excel merge (prompts for files)"
   echo "    ./run.sh help                              Show this help"
@@ -404,24 +414,26 @@ show_help() {
   echo "    mode        Controls what kind of input the launcher expects for migration modules:"
   echo "                binary = compiled JAR/WAR/EAR file or directory, passed as --input"
   echo "                repo   = component workbook, passed as --source-inventory with credential prompt"
-  echo "                both   = compiled input plus component workbook in one report"
+  echo "                both   = compiled input is artifact lookup repo; scan only workbook Generated JARs"
   echo "                Workbook columns: Component, Repository, optional Type, Branch, Revision, Path, Enabled."
+  echo "                Optional correlation columns: Generated JARs, Application Packages, Ownership."
+  echo "                Generated JAR bytecode confirms findings; source-only findings remain candidates."
   echo ""
   echo "  EXAMPLES"
   echo "    ./run.sh upgrade    binary /opt/app/lib  Upgrade-Compatibility-Report.xlsx"
   echo "    ./run.sh upgrade    repo   ComponentList.xlsx SourceInventory-Report.xlsx"
-  echo "    ./run.sh upgrade    both   /opt/app/lib  ComponentList.xlsx Upgrade-Combined.xlsx"
+  echo "    ./run.sh upgrade    both   /opt/app/lib ComponentList.xlsx Upgrade-Combined.xlsx"
   echo "    ./run.sh wl15       binary /opt/app/lib  WL15-Migration-Report.xlsx"
   echo "    ./run.sh wl15       repo   ComponentList.xlsx SourceInventory-Report.xlsx"
   echo "    ./run.sh wl14       binary /opt/app/lib  WL14-Migration-Report.xlsx"
   echo "    ./run.sh wl14       repo   ComponentList.xlsx SourceInventory-Report.xlsx"
-  echo "    ./run.sh wl14       both   /opt/app/lib  ComponentList.xlsx WL14-Combined.xlsx"
+  echo "    ./run.sh wl14       both   /opt/app/lib ComponentList.xlsx WL14-Combined.xlsx"
   echo "    ./run.sh wl-jboss26 binary /opt/app/lib  WlToJBoss-WildFly26-Report.xlsx"
   echo "    ./run.sh wl-jboss26 repo   ComponentList.xlsx SourceInventory-Report.xlsx"
-  echo "    ./run.sh wl-jboss26 both   /opt/app/lib  ComponentList.xlsx WlToJBoss26-Combined.xlsx"
+  echo "    ./run.sh wl-jboss26 both   /opt/app/lib ComponentList.xlsx WlToJBoss26-Combined.xlsx"
   echo "    ./run.sh wl-jboss27 binary /opt/app/lib  WlToJBoss-WildFly27-Report.xlsx"
   echo "    ./run.sh wl-jboss27 repo   ComponentList.xlsx SourceInventory-Report.xlsx"
-  echo "    ./run.sh wl-jboss27 both   /opt/app/lib  ComponentList.xlsx WlToJBoss27-Combined.xlsx"
+  echo "    ./run.sh wl-jboss27 both   /opt/app/lib ComponentList.xlsx WlToJBoss27-Combined.xlsx"
   echo "    ./run.sh analyze    /opt/reports/json  AnalyzerOutput.xlsx"
   echo "    ./run.sh analyze                       AnalyzerOutput.xlsx"
   echo ""

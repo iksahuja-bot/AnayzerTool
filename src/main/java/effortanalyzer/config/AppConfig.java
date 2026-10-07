@@ -342,7 +342,7 @@ public class AppConfig {
                 if (needsBinary && inputPath.isBlank() && jarListFile.isBlank() && sourceInventoryFile.isBlank()) {
                     yield module + ": --mode=binary requires --input=<jar-or-directory> or --jar-list=<file>";
                 }
-                if (needsBinary && inputPath.isBlank() && jarListFile.isBlank() && !sourceInventoryFile.isBlank()) {
+                if (effectiveMode.equals("binary") && inputPath.isBlank() && jarListFile.isBlank() && !sourceInventoryFile.isBlank()) {
                     yield module + ": --input=<jar-or-directory> is required for --mode=binary (or use --mode=repo for source-only scan)";
                 }
                 if (mode.isBlank() && inputPath.isBlank() && jarListFile.isBlank() && sourceInventoryFile.isBlank()) {
@@ -440,7 +440,7 @@ public class AppConfig {
         System.out.println("  Exclusions: edit upgrade-excluded-rules.txt (IBM TA rule IDs, one per line)");
         System.out.println("  --input=<path>           JAR/WAR/EAR or directory of archives (required unless --source-inventory is provided)");
         System.out.println("  --jar-list=<file>        Text file: one JAR path per line (alternative to --input)");
-        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; --mode=both resolves Generated JARs from checkout or --input and scans only those files");
         System.out.println("  --ibm-scanner=<path>     Path to binaryAppScanner.jar (default: auto-detect)");
         System.out.println("  --output=<file>          Output (default: Upgrade-Compatibility-Report.xlsx)");
         System.out.println();
@@ -461,7 +461,7 @@ public class AppConfig {
         System.out.println("  WebLogic 14.1.2-specific proprietary API removals (T3StartupDef, T3ShutdownDef,");
         System.out.println("  MessageLogger, TrustManager, HostnameVerifier). Also checks bundled library versions.");
         System.out.println("  --input=<path>           JAR/WAR/EAR or directory (required unless --source-inventory is provided)");
-        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; --mode=both resolves Generated JARs from checkout or --input and scans only those files");
         System.out.println("  --output=<file>          Output (default: WL14-Migration-Report.xlsx)");
         System.out.println("  --library-versions=<file> Custom library-versions.properties target table (optional)");
         System.out.println("                           Built-in targets overridable; also resolved next to the JAR");
@@ -470,14 +470,14 @@ public class AppConfig {
         System.out.println("  Target: WildFly 26 / JBoss EAP 7.4 – Java 8 – Jakarta EE 8 (javax.*)");
         System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list or --source-inventory given)");
         System.out.println("  --jar-list=<file>        Text file: one JAR path per line");
-        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; --mode=both resolves Generated JARs from checkout or --input and scans only those files");
         System.out.println("  --output=<file>          Output (default: WlToJBoss-WildFly26-Report.xlsx)");
         System.out.println();
         System.out.println("Module: wl-jboss27");
         System.out.println("  Target: WildFly 27+ / JBoss EAP 8 – Java 21 – Jakarta EE 10 (jakarta.*)");
         System.out.println("  --input=<path>           JAR/WAR/EAR or directory  (required unless --jar-list or --source-inventory given)");
         System.out.println("  --jar-list=<file>        Text file: one JAR path per line");
-        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; combine with --input to append source sheets");
+        System.out.println("  --source-inventory=<xlsx> Component workbook for repository source scan; --mode=both resolves Generated JARs from checkout or --input and scans only those files");
         System.out.println("  --output=<file>          Output (default: WlToJBoss-WildFly27-Report.xlsx)");
         System.out.println();
         System.out.println("Configuration file (optional):");
@@ -517,6 +517,7 @@ public class AppConfig {
     // ──────────────────────────────────────────────────────────────────────────
 
     public String  getModule()          { return module; }
+    public String  getMode()            { return mode; }
     public String  getInputPath()       { return inputPath; }
     public String  getOutputFile()      { return outputFile; }
     public String  getTicketFile()      { return ticketFile; }

@@ -205,6 +205,19 @@ class AppConfigTest {
     }
 
     @Test
+    void validateAllowsBothModeWithSourceInventoryOnly(@TempDir Path tmpDir) throws Exception {
+        Path inventory = tmpDir.resolve("ComponentList.xlsx");
+        java.nio.file.Files.writeString(inventory, "placeholder");
+        AppConfig cfg = AppConfig.parse(new String[]{
+                "--module=upgrade",
+                "--mode=both",
+                "--source-inventory=" + inventory
+        });
+
+        assertEquals("", cfg.validate());
+    }
+
+    @Test
     void validateFailsWhenModuleSourceInventoryWorkbookIsMissing() {
         AppConfig cfg = AppConfig.parse(new String[]{
                 "--module=wl15",
