@@ -32,6 +32,7 @@ class SourceInventoryReaderTest {
             header.createCell(8).setCellValue("Generated JARs");
             header.createCell(9).setCellValue("Application Packages");
             header.createCell(10).setCellValue("Ownership");
+            header.createCell(11).setCellValue("Trunk Validated");
 
             Row row = sheet.createRow(1);
             row.createCell(0).setCellValue("Enabled Component");
@@ -44,6 +45,7 @@ class SourceInventoryReaderTest {
             row.createCell(8).setCellValue("target/app-core.jar; target/app-api.jar");
             row.createCell(9).setCellValue("com.example;org.example");
             row.createCell(10).setCellValue("application code");
+            row.createCell(11).setCellValue("Yes");
 
             Row disabled = sheet.createRow(2);
             disabled.createCell(0).setCellValue("Disabled Component");
@@ -66,5 +68,10 @@ class SourceInventoryReaderTest {
         assertEquals("application code", components.get(0).ownership());
         assertTrue(components.get(0).enabled());
         assertFalse(components.get(1).enabled());
+        assertEquals(Boolean.TRUE, components.get(0).trunkValidated());
+        assertTrue(components.get(0).isTrunkValidated());
+        assertNull(components.get(1).trunkValidated(), "blank Trunk Validated leaves the CLI default in charge");
+        assertFalse(components.get(1).withTrunkValidatedDefault(true).isTrunkValidated(), "no trunk URL means nothing to validate");
+        assertTrue(components.get(0).withTrunkValidatedDefault(false).isTrunkValidated(), "the inventory value wins over the default");
     }
 }

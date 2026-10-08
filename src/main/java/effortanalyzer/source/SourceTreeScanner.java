@@ -7,11 +7,16 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /** Direct source-tree scanner for checked-out components. */
 public class SourceTreeScanner {
+
+    private static final String NEW_INSTANCE_PATTERN = "newInstance()";
+    private static final Pattern NEW_INSTANCE_CALL = Pattern.compile("\\.\\s*newInstance\\s*\\(\\s*\\)");
+    private static final Pattern CONSTRUCTOR_VARIABLE = Pattern.compile("\\bConstructor\\s*(?:<[^;=()]*>)?\\s+([A-Za-z_$][\\w$]*)\\s*[=;,)]");
 
     private final List<DeprecatedApi> libraryRules;
     private final WlJBossRules wlRules;
@@ -55,14 +60,61 @@ public class SourceTreeScanner {
         List<String> codeOnlyLines = stripJavaCommentsAndLiterals(lines);
         Map<String, String> imports = collectImports(codeOnlyLines);
         boolean java = relative.toLowerCase(Locale.ROOT).endsWith(".java");
+        Set<String> constructorVars = java ? collectConstructorVariables(codeOnlyLines) : Set.of();
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             String codeOnly = i < codeOnlyLines.size() ? codeOnlyLines.get(i) : "";
             int lineNumber = i + 1;
             if (java && !libraryRules.isEmpty()) scanLibraryRules(component, relative, line, codeOnly, lineNumber, imports, findings);
             if (wlRules != null) scanWlRules(component, relative, line, lineNumber, findings);
-            if (!java21Rules.isEmpty()) scanJava21Rules(component, relative, java, line, codeOnly, lineNumber, findings);
+            if (!java21Rules.isEmpty()) scanJava21Rules(component, relative, java, line, codeOnly, lineNumber, constructorVars, findings);
         }
+    }
+
+    private static Set<String> collectConstructorVariables(List<String> codeOnlyLines) {
+        Set<String> vars = new HashSet<>();
+        for (String line : codeOnlyLines) {
+            Matcher m = CONSTRUCTOR_VARIABLE.matcher(line);
+            while (m.find()) vars.add(m.group(1));
+        }
+        return vars;
+    }
+
+    /**
+     * True when a {@code newInstance()} call is plausibly the deprecated {@code Class.newInstance()}:
+     * excludes {@code getDeclaredConstructor(..).newInstance()}, {@code Constructor}-typed receivers,
+     * and static factories such as {@code DocumentBuilderFactory.newInstance()}.
+     */
+    static boolean isClassNewInstanceCall(String codeOnly, Set<String> constructorVars) {
+        Matcher m = NEW_INSTANCE_CALL.matcher(codeOnly);
+        while (m.find()) {
+            int i = m.start() - 1;
+            while (i >= 0 && Character.isWhitespace(codeOnly.charAt(i))) i--;
+            if (i < 0) continue;
+            if (codeOnly.charAt(i) == ')') {
+                int depth = 0;
+                for (; i >= 0; i--) {
+                    char c = codeOnly.charAt(i);
+                    if (c == ')') depth++;
+                    else if (c == '(' && --depth == 0) break;
+                }
+                i--;
+                while (i >= 0 && Character.isWhitespace(codeOnly.charAt(i))) i--;
+                String method = identifierEndingAt(codeOnly, i);
+                if (method.equals("getDeclaredConstructor") || method.equals("getConstructor")) continue;
+                return true;
+            }
+            String receiver = identifierEndingAt(codeOnly, i);
+            if (receiver.isEmpty() || constructorVars.contains(receiver)) continue;
+            if (receiver.equals("class") || Character.isLowerCase(receiver.charAt(0)) || receiver.charAt(0) == '_') return true;
+        }
+        return false;
+    }
+
+    private static String identifierEndingAt(String text, int end) {
+        int start = end;
+        while (start >= 0 && Character.isJavaIdentifierPart(text.charAt(start))) start--;
+        return end < 0 ? "" : text.substring(start + 1, end + 1);
     }
 
     private void scanLibraryRules(SourceComponent component, String file, String line, String codeOnlyLine, int lineNumber,
@@ -187,7 +239,7 @@ public class SourceTreeScanner {
     }
 
     private void scanJava21Rules(SourceComponent component, String file, boolean java, String line, String codeOnlyLine,
-                                 int lineNumber, List<SourceFinding> findings) {
+                                 int lineNumber, Set<String> constructorVars, List<SourceFinding> findings) {
         String trimmed = line.trim();
         String codeOnly = codeOnlyLine.trim();
         if (trimmed.isBlank() && codeOnly.isBlank()) return;
@@ -198,6 +250,9 @@ public class SourceTreeScanner {
 
             if (java && rule.scansJava()) {
                 matched = !codeOnly.isBlank() && containsPattern(codeOnly, rule.apiPattern());
+                if (matched && NEW_INSTANCE_PATTERN.equals(rule.apiPattern())) {
+                    matched = isClassNewInstanceCall(codeOnly, constructorVars);
+                }
                 context = codeOnly;
             }
 

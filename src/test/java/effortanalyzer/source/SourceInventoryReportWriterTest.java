@@ -55,7 +55,8 @@ class SourceInventoryReportWriterTest {
                     () -> assertTrue(sheetText.contains("WL14-AI-"), "action item IDs should be populated"),
                     () -> assertTrue(sheetText.contains("JAVA_API_MIGRATION"), "Java API findings should be classified for automation"),
                     () -> assertTrue(sheetText.contains("javax.xml.bind"), "detected symbols should be populated"),
-                    () -> assertTrue(sheetText.contains("jakarta.xml.bind"), "replacement symbols should be populated"),
+                    () -> assertTrue(sheetText.contains("keep javax.xml.bind; declare javax.xml.bind:jaxb-api:2.3.1"),
+                            "WL14 replacement symbols must keep javax and name the provided API artifact"),
                     () -> assertTrue(sheetText.contains("src/main/java/com/example/cluster/ClusterService.java"), "primary file should be visible"),
                     () -> assertTrue(sheetText.contains("42"), "line hints should be visible"),
                     () -> assertTrue(rawSheetText.contains("action_item_id"), "raw sheet should use normalized headers"),
@@ -142,6 +143,58 @@ class SourceInventoryReportWriterTest {
                     () -> assertTrue(sheetText(wb.getSheet("📋 Instructions")).contains("Source Inventory"),
                             "existing module instructions should document source inventory")
             );
+        }
+    }
+
+    @Test
+    void wl14ReportSeparatesPlatformProvidedOptionalAndBlockingItems(@TempDir Path tmpDir) throws Exception {
+        SourceComponent component = new SourceComponent("pal", "file:///repo/pal", RepositoryType.LOCAL,
+                "", "", "", true, 2, List.of(), List.of("com.example"), "application code");
+        CheckoutResult checkout = CheckoutResult.success(component, tmpDir.resolve("pal"), "LOCAL", "Using local source directory");
+        SourceFinding provided = new SourceFinding("pal", component.repository(), component.type(), "Java 21",
+                TargetPlatformPolicy.PLATFORM_PROVIDED, "INFO", "src/main/java/com/example/Tx.java", 3,
+                "javax.transaction.UserTransaction", "Provided by WebLogic 14.", "No code change for WL14.", "import javax.transaction.UserTransaction;");
+        SourceFinding optional = new SourceFinding("pal", component.repository(), component.type(), "Java 21",
+                "JAVA_BEHAVIOR", "INFO", "src/main/java/com/example/ServiceManager.java", 40,
+                "newInstance()", "Class.newInstance() is deprecated.", "Use getDeclaredConstructor().newInstance().", "clazz.newInstance()");
+        SourceFinding blocking = new SourceFinding("pal", component.repository(), component.type(), "Java 21",
+                "JAVA_REMOVED", "CRITICAL", "src/main/java/com/example/NCAuthDelegateImpl.java", 213,
+                "sun.misc.Service", "sun.misc.Service was removed in JDK 9.", "Use java.util.ServiceLoader.", "sun.misc.Service.providers(x)");
+        SourceScanResult result = new SourceScanResult(component, checkout, 3, List.of(provided, optional, blocking), List.of());
+
+        Path wl14Report = tmpDir.resolve("wl14.xlsx");
+        new SourceInventoryReportWriter().write(wl14Report.toString(), "wl14", List.of(result));
+
+        try (FileInputStream in = new FileInputStream(wl14Report.toFile());
+             Workbook wb = WorkbookFactory.create(in)) {
+            String actionText = sheetText(wb.getSheet("🎯 Action Items"));
+            String rawText = sheetText(wb.getSheet("Action Items Raw"));
+            String findingsText = sheetText(wb.getSheet("Source Findings"));
+            String checklistText = sheetText(wb.getSheet("✅ Remediation Checklist"));
+            assertAll(
+                    () -> assertFalse(rawText.contains("javax.transaction.UserTransaction"), "platform-provided APIs are not action items"),
+                    () -> assertFalse(checklistText.contains("javax.transaction.UserTransaction"), "platform-provided APIs are not checklist items"),
+                    () -> assertTrue(findingsText.contains("javax.transaction.UserTransaction"), "platform-provided APIs stay visible as evidence"),
+                    () -> assertTrue(rawText.contains("OPTIONAL_CLEANUP"), "deprecated-but-working APIs are optional cleanup"),
+                    () -> assertTrue(rawText.contains("getDeclaredConstructor().newInstance()"), "newInstance replacement is exact"),
+                    () -> assertTrue(rawText.contains("java21_impact"), "raw sheet exposes the Java 21 impact column"),
+                    () -> assertTrue(rawText.contains("DEPRECATED — still works on Java 21"), "optional item impact is explicit"),
+                    () -> assertTrue(rawText.contains("BREAKS_COMPILE"), "removed API impact is explicit"),
+                    () -> assertTrue(rawText.contains("java.util.ServiceLoader"), "sun.misc.Service replacement is exact"),
+                    () -> assertTrue(actionText.contains("Java 21 Impact"), "human sheet exposes the Java 21 impact column"),
+                    () -> assertFalse(rawText.contains("Jakarta migration recipe"), "WL14 recipes never suggest Jakarta")
+            );
+        }
+
+        SourceFinding jaxb = new SourceFinding("pal", component.repository(), component.type(), "Java 21",
+                "JAVA_REMOVED", "CRITICAL", "src/main/java/com/example/Xml.java", 5,
+                "javax.xml.bind", "JAXB removed.", "Migrate.", "import javax.xml.bind.JAXBContext;");
+        Path wl15Report = tmpDir.resolve("wl15.xlsx");
+        new SourceInventoryReportWriter().write(wl15Report.toString(), "wl15",
+                List.of(new SourceScanResult(component, checkout, 1, List.of(jaxb), List.of())));
+        try (FileInputStream in = new FileInputStream(wl15Report.toFile());
+             Workbook wb = WorkbookFactory.create(in)) {
+            assertTrue(sheetText(wb.getSheet("Action Items Raw")).contains("jakarta.xml.bind"), "WL15 still maps javax to jakarta");
         }
     }
 

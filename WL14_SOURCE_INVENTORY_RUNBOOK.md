@@ -525,6 +525,40 @@ Recommended action: architects and application leads should combine these sheets
 | Test-only evidence | Finding appears in test scope. | Fix if tests must run on the target platform; otherwise lower priority. |
 | Bytecode-only evidence | Compiled artifact contains a match but source mapping is incomplete. | Map the JAR/class back to the source owner before remediation. |
 
+### Java 21 Impact and WL14 Platform-Provided APIs
+
+Read `Java 21 Impact` (`java21_impact` in `Action Items Raw`) before `Severity`:
+
+| Impact | Recommended Action |
+|--------|--------------------|
+| `BREAKS_COMPILE` / `BREAKS_RUNTIME` | Required for Java 21. Check trunk first; port the trunk fix when one exists. |
+| `BREAKS_ACCESS` | Replace the JDK internal; `--add-opens` / `--add-exports` is a temporary workaround. |
+| `DEPRECATED_FOR_REMOVAL` | Works on Java 21; plan before the next JDK upgrade. |
+| `DEPRECATED` (`OPTIONAL_CLEANUP`) | Works on Java 21; fix only when touching the code. |
+| `RUNTIME_RISK` (for example `setAccessible(true)`) | Only fails when the target is a JDK-internal class; verify the target. |
+
+The WL14 target is WebLogic 14.1.2 on Java 21. It is still Java EE 8, so the server supplies `javax.annotation`, `javax.transaction`, JAXB, JAX-WS, SAAJ, JAF, and JWS, even though JDK 21 does not. The `wl14` profile reports them as `PLATFORM_PROVIDED` in `Source Findings` only, and they are counted on `📊 Summary`. Keep the `javax.*` imports, and declare the API jar with `provided` scope (or compile against the WebLogic 14.1.2 API jar) so the code compiles with JDK 21. Never migrate WL14 code to `jakarta.*`.
+
+In `both` mode, findings with scanner `JDK Tools` come from `jdeprscan --release 21`, `jdeps --jdk-internals`, and a check of every `java.*` class/member reference against JDK 21. They are exact, because they are resolved by owner class and descriptor. Disable them with `--jdk-tools=false`.
+
+### Trunk Validated and the compile check
+
+When trunk already runs on WebLogic 14.1.2 with Java 21, add a `Trunk Validated` column to `ComponentList.xlsx` and set it to `Yes` (or pass `--trunk-validated=true`). Each finding then carries a `Trunk Status`:
+
+| Trunk Status | Recommended Action |
+|--------------|--------------------|
+| `TRUNK_SAME_VALIDATED` | Not required. The same code already runs on the target, so leave it unchanged. It is excluded from the checklist and the effort. |
+| `TRUNK_FIXED` | Port the change from the trunk file named in `Trunk Evidence`. |
+| `TRUNK_REMOVED` | Trunk restructured the code. Review trunk before editing. |
+| `TRUNK_SAME` | Trunk has the same code but is not marked validated. Confirm it with the trunk owner. |
+
+For ground-truth Java 21 evidence without pre-built JARs, add `--compile-check=true`. This compiles each checkout with `javac --release 21`. Findings with validation `CONFIRMED_COMPILER` or `CONFIRMED_SOURCE_AND_COMPILER` are the compiler's own verdict. For WL14, missing `javax.*` server APIs show up as `BUILD_CLASSPATH` (INFO) and are not code changes. Pass `--maven-settings=settings-local.xml` for Maven checkouts, or `--compile-classpath=<WebLogic API jar;lib folder>` for Ant checkouts, so the `Compile Check` status reaches `CLEAN` / `JAVA21_FINDINGS` rather than `INCOMPLETE_CLASSPATH`.
+
+```powershell
+java -jar EffortAnalyzer-2.0.0.jar --module=wl14 --mode=both --source-inventory=ComponentList.xlsx `
+  --trunk-validated=true --compile-check=true --maven-settings=settings-local.xml --output=WL14-Combined.xlsx
+```
+
 ---
 
 ## 11. Operational Tips

@@ -48,6 +48,8 @@ public class SourceInventoryReader {
                         "applicationpackages", "apppackages", "packages", "packageprefixes", "ownedpackages"));
                 String ownership = value(row, optional(columns,
                         "ownership", "ownertype", "codeownership", "scope"));
+                String trunkValidated = value(row, optional(columns,
+                        "trunkvalidated", "validatedtrunk", "trunkontarget", "trunkverified"));
 
                 components.add(new SourceComponent(
                         component.trim(),
@@ -61,7 +63,8 @@ public class SourceInventoryReader {
                         r + 1,
                         splitSemicolonList(generatedJars),
                         splitSemicolonList(applicationPackages),
-                        ownership));
+                        ownership,
+                        trunkValidated.isBlank() ? null : isEnabled(trunkValidated)));
             }
         }
 

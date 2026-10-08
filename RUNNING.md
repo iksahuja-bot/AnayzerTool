@@ -932,9 +932,79 @@ Correlation fields in the `Source Findings` sheet:
 
 Important behavior: source-only findings are retained as candidates. Bytecode evidence increases confidence/status; it does not hide source-only findings.
 
+#### Java 21 impact, platform-provided APIs, and JDK tool evidence
+
+`🎯 Action Items` has a `Java 21 Impact` column, and `Action Items Raw` has `java21_impact`. The value comes from the rule kind, not only the severity:
+
+| Impact | Meaning | Action |
+| ------ | ------- | ------ |
+| `BREAKS_COMPILE` | API is absent from JDK 21 (for example `sun.misc.Service`, `java.security.acl`) | Required fix |
+| `BREAKS_RUNTIME` | Throws `UnsupportedOperationException` on Java 21 (for example `Thread.stop`, `System.setSecurityManager`) | Required fix |
+| `BREAKS_ACCESS` | Strongly encapsulated JDK internal | Replace; `--add-opens` is only a stopgap |
+| `DEPRECATED_FOR_REMOVAL` | Works on Java 21 and will be removed later | Plan |
+| `DEPRECATED` (`OPTIONAL_CLEANUP`) | Works on Java 21 (for example `Class.newInstance()`) | Optional; not a migration blocker |
+| `PLATFORM_PROVIDED` | Removed from Java SE but supplied by the target server | No code change |
+
+**WL14 profile.** The target is WebLogic 14.1.2 on Java 21, which is still Java EE 8. JDK 21 no longer ships these APIs, but the server does. `javax.annotation`, `javax.transaction`, `javax.xml.bind`, `javax.xml.ws`, `javax.xml.soap`, `javax.activation`, and `javax.jws` are reported as `PLATFORM_PROVIDED` (INFO). They are listed in `Source Findings` and counted on `📊 Summary`, but excluded from `🎯 Action Items`, the checklist, and the effort estimate. The remediation names the `provided`-scope API artifact, for example `javax.transaction:javax.transaction-api:1.3`. `Replacement Symbol` never suggests `jakarta.*` for WL14; it does only for `wl15` / `wl-jboss27`.
+
+**`newInstance()` precision.** The source rule matches only `Class` receivers (`clazz.newInstance()`, `Class.forName(..).newInstance()`, `X.class.newInstance()`). It ignores `getDeclaredConstructor(..).newInstance()`, `Constructor`-typed variables, and static factories such as `DocumentBuilderFactory.newInstance()`.
+
+**JDK tool evidence (`--jdk-tools=true`, default).** For each row's resolved `Generated JARs`, EffortAnalyzer adds findings with scanner `JDK Tools`:
+
+| Category | Source | Severity |
+| -------- | ------ | -------- |
+| `JDK_REMOVED_API` | Built-in check: a referenced `java.*` class, method, or field does not exist in the running JDK 21 | CRITICAL |
+| `JDK_REMOVED_INTERNAL_API` | `jdeps --jdk-internals`: "JDK removed internal API" (for example `sun.misc.Service`), with the jdeps suggested replacement | CRITICAL |
+| `JDK_INTERNAL_API` | `jdeps`: encapsulated internal in `java.base` or another module | HIGH |
+| `JDK_UNSUPPORTED_API` | `jdeps`: `jdk.unsupported` (for example `sun.misc.Unsafe`), still exported | MEDIUM |
+| `JDK_UNSUPPORTED_AT_RUNTIME` | `jdeprscan` for-removal APIs that already throw on Java 21 | CRITICAL |
+| `JDK_DEPRECATED_FOR_REMOVAL` | `jdeprscan --release 21` `(forRemoval=true)` | MEDIUM |
+| `JDK_DEPRECATED` | `jdeprscan`, plus `Class.newInstance()`, which jdeprscan does not report | INFO |
+
+The tools are taken from the running JVM's `java.home/bin`. On a JRE without them, only the built-in check runs. A JDK tool finding that duplicates a pattern-rule bytecode finding for the same class is dropped, so the rule finding keeps its source correlation. JDK tool findings appear as `CONFIRMED_BYTECODE_ONLY`. When the checkout contains the `.java` file that declares the class, `File` and `Line` point at it (reason code `BYTECODE_ONLY_MAPPED_TO_SOURCE`). Use `--jdk-tools=false` to turn this off.
+
+#### Compile check (`--compile-check=true`)
+
+The compile check compiles each checkout's main sources in-process with `javac --release 21 -Xlint:deprecation,removal`. Test directories (`src/test`, `test`, `unit-test`, …) are skipped, and the `.java` files are not modified; class output goes to a temporary folder that is deleted afterwards. Diagnostics map to the same categories as the JDK Tools scanner, under scanner `Compile Check`:
+
+| javac diagnostic | Category |
+| ---------------- | -------- |
+| `package java.security.acl does not exist` | `JDK_REMOVED_API` (CRITICAL) |
+| `cannot find symbol … location: package sun.misc` | `JDK_REMOVED_INTERNAL_API` (CRITICAL) |
+| `cannot find symbol … method destroy() … of type java.lang.Thread` | `JDK_REMOVED_API` (CRITICAL); only in files where every project type resolved |
+| `package sun.security.x509 is not visible` | `JDK_INTERNAL_API` (HIGH) |
+| `… has been deprecated and marked for removal` | `JDK_UNSUPPORTED_AT_RUNTIME` (CRITICAL) for `Thread.stop` and similar; otherwise `JDK_DEPRECATED_FOR_REMOVAL` (MEDIUM) |
+| `… has been deprecated` | `JDK_DEPRECATED` (INFO, optional cleanup) |
+| `… is internal proprietary API` | `JDK_UNSUPPORTED_API` (MEDIUM) |
+| `_`, `var`, `yield`, `record` used as identifiers | `JAVA21_LANGUAGE` (CRITICAL) |
+| WL14 only: `package javax.transaction does not exist` | `BUILD_CLASSPATH` (INFO; not an action item) |
+
+Compiler findings are `CONFIRMED_COMPILER` with HIGH confidence. A pattern-rule finding on the same line for the same API becomes `CONFIRMED_SOURCE_AND_COMPILER` instead of being reported twice. Unresolved project or third-party types are counted, never reported. The `Compile Check` column on `Source Inventory` and `📊 Summary` shows `CLEAN`, `JAVA21_FINDINGS`, `INCOMPLETE_CLASSPATH`, `SKIPPED`, or `FAILED`, with counts.
+
+Classpath: the JARs inside the checkout, plus `--compile-classpath` entries (JARs, or folders that are searched for JARs). When the checkout root has a `pom.xml`, `mvn dependency:build-classpath` resolves the compile scope (`--maven-settings` passes `-s`); any `target/` folders it creates are removed. If the component compiles without errors, the JDK tools also run on the compiled classes, so components without `Generated JARs` still get `jdeprscan` / `jdeps` evidence.
+
+#### Trunk status and Trunk Validated
+
+When a row has a `Trunk` value, the trunk checkout is scanned with the same rules. Every finding gets `Trunk Status` and `Trunk Evidence` (on `Source Findings` and `🎯 Action Items`; `trunk_status` / `trunk_evidence` in `Action Items Raw`):
+
+| Trunk Status | Meaning |
+| ------------ | ------- |
+| `TRUNK_SAME_VALIDATED` | Trunk has the same code and the row is `Trunk Validated`. **NOT REQUIRED**: ranked last, excluded from required counts, the checklist, and the effort estimate. |
+| `TRUNK_SAME` | Trunk has the same code but is not marked validated, so trunk has not fixed it either. |
+| `TRUNK_FIXED` | The class/file exists in trunk without the finding. `Trunk Evidence` names the trunk file to port from. |
+| `TRUNK_REMOVED` | The class/file is not in trunk. |
+| `TRUNK_PARTIAL (…)` | An action item whose files have different statuses. |
+| `NOT_COMPARED` | No trunk checkout (the reason is in `Trunk Evidence`). |
+
+Java classes are matched by their `package` declaration, so `src/com/x/A.java` in the fixable checkout matches `module/src/main/java/com/x/A.java` in trunk. Pattern findings compare with trunk's scan results; compiler, JDK tool, and bytecode findings compare with the API text in the trunk class.
+
+Add a `Trunk Validated` column (`Yes` / `No`) to the inventory when trunk already runs on the target platform, for example trunk is on Java 21 and validated on WebLogic 14.1.2. `--trunk-validated=true` sets the default for rows that leave the column blank.
+
 Use the `🎯 Action Items` sheet as the focused working view. It groups duplicate raw findings by component/rule, ranks confirmed bytecode evidence ahead of source-only candidates, keeps components that only appear in source findings visible, and adds a `Recommended Code Change` plus `Automation Starting Point` column for future assisted fixes. Treat `Source Findings` as raw evidence for drill-down rather than the primary backlog.
 
 When an inventory row includes `Trunk`, EffortAnalyzer prepares the trunk/reference source in `.ea-workspace` next to the fixable/current checkout. Use `Source Inventory` to confirm `Checkout Status`, `Checkout Path`, `Trunk Checkout Status`, and `Trunk Checkout Path`; use `🎯 Action Items` or hidden `Action Items Raw` to pass `Fixable Source Location`/`fixable_source_path` and `Trunk Source Location`/`trunk_source_path` into a remediation workflow. The fixable path is the patch target; the trunk path is read-only comparison input. Current checkout failures and trunk checkout failures are both listed on `Checkout Errors`.
+
+The Cursor skill `wl14-report-remediation` automates this workflow from the workbook and `.ea-workspace`. See [WL14_REMEDIATION_SKILL_GUIDE.md](WL14_REMEDIATION_SKILL_GUIDE.md) for prompts, outputs, and how to install the skill for other team members.
 
 ### What you need for SVN
 
@@ -1011,6 +1081,11 @@ Useful source-inventory options:
 | `--clean-workspace=true|false` | `false` | Deletes each component checkout before checkout; useful after corrupted or wrong-revision working copies |
 | `--fail-on-checkout-error=true|false` | `false` | Stop immediately on first checkout error instead of writing the error sheet |
 | `--prompt-credentials=true|false` | `false` | Prompt once for username/password and pass them to Git/SVN commands |
+| `--jdk-tools=true|false` | `true` | Run `jdeprscan --release 21`, `jdeps --jdk-internals`, and the built-in JDK 21 API check on each row's `Generated JARs` (modules with Java 21 rules only) |
+| `--trunk-validated=true|false` | `false` | Default `Trunk Validated` value for inventory rows that leave it blank. Trunk-same findings of validated rows become NOT REQUIRED |
+| `--compile-check=true|false` | `false` | Compile each checkout's main sources with `javac --release 21` and report compiler-confirmed Java 21 findings (modules with Java 21 rules only) |
+| `--compile-classpath=<p;p>` | _(none)_ | Extra JARs or JAR folders for `--compile-check`, separated by `;` or the OS path separator |
+| `--maven-settings=<file>` | _(none)_ | `settings.xml` passed to `mvn dependency:build-classpath` when `--compile-check` finds a `pom.xml` |
 
 Source-only workbook sheets are `Source Inventory`, `Source Findings`, `🎯 Action Items`, and `Checkout Errors`. The `Source Inventory` sheet includes `Generated JARs`, `Application Packages`, `Ownership`, and `Bytecode Findings` so you can confirm whether each component had bytecode evidence available.
 

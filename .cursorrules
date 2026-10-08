@@ -195,6 +195,10 @@ mvn test
 - Do not use `System.exit(...)` deep inside analyzer classes — only in `EffortAnalyzerApp` or launcher scripts.
 - Do not change module names without updating `AppConfig`, `EffortAnalyzerApp`, help text, and all README examples.
 - Keep severity ordering consistent across modules (HIGH/Critical first, then MEDIUM/Warning, then LOW/Info).
+- When remediating WL14 workbook findings, keep `javax.*` imports. The WL14 target is WebLogic 14.1.2 on Java 21, which is still Java EE 8. The `wl14` source profile reports server-provided javax EE APIs as `PLATFORM_PROVIDED` via `TargetPlatformPolicy`; `jakarta.*` replacement text is only emitted for `wl15` / `wl-jboss27`. Workbooks generated before this change may still suggest `jakarta.*` for WL14; ignore it. Use the `wl14-report-remediation` skill (see `WL14_REMEDIATION_SKILL_GUIDE.md`).
+- Java 21 severity must reflect the rule kind: removed or unsupported-at-runtime APIs are blockers, while deprecated-but-working APIs (for example `Class.newInstance()`) are `OPTIONAL_CLEANUP`. Prefer owner-resolved bytecode evidence (`JdkToolScanner`) over text patterns when adding Java 21 checks.
+- `CompileChecker` (`--compile-check`) must never turn unresolved non-JDK types into findings; it only counts them. A missing JDK member counts as a finding only when the whole file resolved, because a failed project import can fall back to a JDK type (seen with `java.sql.JDBCType` via `import java.sql.*`). `javac` writes no class files when any file has errors.
+- Trunk findings are comparison input only. Match classes by `package` declaration (`SourceFileIndex`), not by path. Only `TRUNK_SAME_VALIDATED` (row `Trunk Validated = Yes`) makes an action item NOT REQUIRED.
 
 ---
 
@@ -213,6 +217,11 @@ mvn test
 | `Wl15Analyzer` / `Wl15ReportWriter` / `Wl15LibraryRules` | WebLogic 15 migration reports |
 | `WlJBossAnalyzer` / `WlJBossReportWriter` / `WlJBossRules` | WebLogic → WildFly/JBoss migration |
 | `TicketComponentMerger` | JIRA + component Excel merge |
+| `SourceInventoryAnalyzer` / `SourceTreeScanner` / `SourceInventoryReportWriter` | Source-inventory checkout, source scan, and action-item workbook |
+| `TargetPlatformPolicy` | Target-server overrides for Java 21 rules (WL14 `PLATFORM_PROVIDED` javax APIs) |
+| `JdkToolScanner` | jdeprscan / jdeps / built-in JDK 21 API check on generated artifacts (`--jdk-tools`) |
+| `CompileChecker` / `CompileCheckResult` | `javac --release 21` compile of each checkout; compiler-confirmed Java 21 findings (`--compile-check`) |
+| `TrunkComparator` / `SourceFileIndex` | Per-finding trunk status (`TRUNK_FIXED` / `TRUNK_SAME[_VALIDATED]` / `TRUNK_REMOVED`) and bytecode-to-source mapping |
 
 ---
 

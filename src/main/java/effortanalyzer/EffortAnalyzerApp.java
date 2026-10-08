@@ -7,7 +7,9 @@ import effortanalyzer.config.AnalyzerConfig;
 import effortanalyzer.config.AppConfig;
 import effortanalyzer.merger.TicketComponentMerger;
 import effortanalyzer.source.CheckoutCredentials;
+import effortanalyzer.source.CompileChecker;
 import effortanalyzer.source.GeneratedArtifactScanner;
+import effortanalyzer.source.JdkToolScanner;
 import effortanalyzer.source.SourceInventoryAnalyzer;
 import effortanalyzer.source.SourceScanProfile;
 import effortanalyzer.source.SourceScanResult;
@@ -20,6 +22,7 @@ import effortanalyzer.wljboss.WlJBossRules;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * EffortAnalyzer – unified entry point.
@@ -208,8 +211,21 @@ public class EffortAnalyzerApp {
                 cfg.isFailOnCheckoutError(),
                 buildSourceScanProfile(cfg),
                 promptCredentials(cfg),
-                artifactRoots
+                artifactRoots,
+                cfg.isJdkToolsEnabled() ? JdkToolScanner.detect() : null,
+                cfg.isCompileCheck() ? createCompileChecker(cfg) : null,
+                cfg.isTrunkValidated()
         );
+    }
+
+    private static CompileChecker createCompileChecker(AppConfig cfg) {
+        List<Path> extra = Arrays.stream(cfg.getCompileClasspath().split("[;" + Pattern.quote(File.pathSeparator) + "]"))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .map(Path::of)
+                .toList();
+        Path settings = cfg.getMavenSettings().isBlank() ? null : Path.of(cfg.getMavenSettings());
+        return CompileChecker.create(buildSourceScanProfile(cfg).module(), extra, settings);
     }
 
     private static boolean hasSourceInventory(AppConfig cfg) {

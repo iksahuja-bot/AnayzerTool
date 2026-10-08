@@ -359,6 +359,87 @@ class SourceTreeScannerTest {
         assertTrue(result.findings().stream().noneMatch(f -> "Java 21".equals(f.scanner())));
     }
 
+    @Test
+    void wl14ProfileTreatsJavaxEeApisAsPlatformProvided(@TempDir Path tmpDir) throws Exception {
+        Path source = tmpDir.resolve("component");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve("App.java"), """
+                import javax.transaction.UserTransaction;
+                import javax.annotation.PostConstruct;
+                class App { UserTransaction tx; }
+                """);
+
+        SourceScanResult wl14 = scanWithWl14Profile(source);
+        SourceScanResult upgrade = scanWithProfile(source, "upgrade");
+
+        assertAll(
+                () -> assertTrue(wl14.findings().stream().anyMatch(f -> f.rule().equals("javax.transaction.UserTransaction")
+                        && TargetPlatformPolicy.PLATFORM_PROVIDED.equals(f.category())
+                        && "INFO".equals(f.severity())
+                        && f.remediation().contains("keep the javax.* namespace")
+                        && f.remediation().contains("javax.transaction:javax.transaction-api:1.3")
+                        && !f.remediation().contains("jakarta.transaction-api"))),
+                () -> assertTrue(wl14.findings().stream().noneMatch(f -> f.rule().startsWith("javax.")
+                        && "JAVA_REMOVED".equals(f.category())), "WL14 must not report provided javax APIs as removed"),
+                () -> assertTrue(upgrade.findings().stream().anyMatch(f -> f.rule().equals("javax.transaction.UserTransaction")
+                        && "JAVA_REMOVED".equals(f.category())), "plain Java 21 upgrade keeps the removed-API rule")
+        );
+    }
+
+    @Test
+    void java21RulesFlagRemovedSunMiscServiceAndSecurityAcl(@TempDir Path tmpDir) throws Exception {
+        Path source = tmpDir.resolve("component");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve("App.java"), """
+                import java.security.acl.Acl;
+                class App {
+                    Object load() { return sun.misc.Service.providers(Runnable.class); }
+                    sun.misc.ServiceConfigurationError notThisOne;
+                }
+                """);
+
+        SourceScanResult result = scanWithWl14Profile(source);
+
+        assertAll(
+                () -> assertTrue(result.findings().stream().anyMatch(f -> f.rule().equals("sun.misc.Service")
+                        && "CRITICAL".equals(f.severity()) && f.line() == 3)),
+                () -> assertEquals(1, result.findings().stream().filter(f -> f.rule().equals("sun.misc.Service")).count(),
+                        "sun.misc.ServiceConfigurationError must not match the sun.misc.Service rule"),
+                () -> assertTrue(result.findings().stream().anyMatch(f -> f.rule().equals("java.security.acl")
+                        && "CRITICAL".equals(f.severity())))
+        );
+    }
+
+    @Test
+    void newInstanceRuleMatchesOnlyClassReceivers(@TempDir Path tmpDir) throws Exception {
+        Path source = tmpDir.resolve("component");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve("App.java"), """
+                import java.lang.reflect.Constructor;
+                import javax.xml.parsers.DocumentBuilderFactory;
+                class App {
+                    Object a(Class<?> clazz) throws Exception { return clazz.newInstance(); }
+                    Object b() throws Exception { return Class.forName("x").newInstance(); }
+                    Object c(Class<?> t) throws Exception { return t.getDeclaredConstructor().newInstance(); }
+                    Object d(Constructor<?> ctor) throws Exception { return ctor.newInstance(); }
+                    Object e() { return DocumentBuilderFactory.newInstance(); }
+                    Object f() throws Exception { return App.class.newInstance(); }
+                }
+                """);
+
+        SourceScanResult result = scanWithWl14Profile(source);
+        var lines = result.findings().stream().filter(f -> f.rule().equals("newInstance()")).map(SourceFinding::line).sorted().toList();
+
+        assertEquals(java.util.List.of(4, 5, 9), lines);
+    }
+
+    private static SourceScanResult scanWithProfile(Path source, String module) throws Exception {
+        SourceComponent component = new SourceComponent("Comp", source.toString(), RepositoryType.LOCAL,
+                "", "", "", true, 2);
+        CheckoutResult checkout = CheckoutResult.success(component, source, "LOCAL", "Using local source directory");
+        return new SourceTreeScanner(SourceScanProfile.forModule(module, WlJBossRules.TargetProfile.WILDFLY27_JAVA21)).scan(checkout);
+    }
+
     private static SourceScanResult scanWithWl14Profile(Path source) throws Exception {
         SourceComponent component = new SourceComponent("Comp", source.toString(), RepositoryType.LOCAL,
                 "", "", "", true, 2);

@@ -21,7 +21,8 @@ public record SourceScanProfile(
     public static SourceScanProfile forModule(String module, WlJBossRules.TargetProfile targetProfile) {
         String normalized = module == null ? "" : module.trim().toLowerCase();
         return switch (normalized) {
-            case "wl14" -> new SourceScanProfile(normalized, wl14Rules(), null, loadJava21Rules());
+            case "wl14" -> new SourceScanProfile(normalized, wl14Rules(), null,
+                    TargetPlatformPolicy.applyWl14(loadJava21Rules()));
             case "wl15" -> new SourceScanProfile(normalized, Wl15LibraryRules.load(), null, List.of());
             case "upgrade", "source-inventory" -> new SourceScanProfile(normalized,
                     LibraryUpgradeRules.load(UpgradeAnalyzer.loadAllExclusions()).getRules(), null, loadJava21Rules());

@@ -109,6 +109,14 @@ public class AppConfig {
     private boolean cleanWorkspace;
     private boolean failOnCheckoutError;
     private boolean promptCredentials;
+    /** Run jdeprscan/jdeps and the built-in JDK 21 API check on generated artifacts (source inventory). */
+    private boolean jdkToolsEnabled;
+    /** Trunk Validated default for inventory rows that leave that column blank. */
+    private boolean trunkValidated;
+    /** Compile each checkout with javac --release 21 as ground-truth Java 21 evidence. */
+    private boolean compileCheck;
+    private String  compileClasspath;
+    private String  mavenSettings;
 
     // meta
     private boolean helpRequested;
@@ -234,6 +242,11 @@ public class AppConfig {
             case "clean-workspace" -> resolved.put("source.clean.workspace",   value);
             case "fail-on-checkout-error" -> resolved.put("source.fail.on.checkout.error", value);
             case "prompt-credentials" -> resolved.put("source.prompt.credentials", value);
+            case "jdk-tools"       -> resolved.put("source.jdk.tools",         value);
+            case "trunk-validated" -> resolved.put("source.trunk.validated",   value);
+            case "compile-check"   -> resolved.put("source.compile.check",     value);
+            case "compile-classpath" -> resolved.put("source.compile.classpath", value);
+            case "maven-settings"  -> resolved.put("source.maven.settings",    value);
             case "config"          -> { /* already handled in first pass */ }
             default                -> System.err.println("Warning: unknown argument --" + key);
         }
@@ -261,6 +274,11 @@ public class AppConfig {
         cleanWorkspace = Boolean.parseBoolean(get("source.clean.workspace", "false"));
         failOnCheckoutError = Boolean.parseBoolean(get("source.fail.on.checkout.error", "false"));
         promptCredentials = Boolean.parseBoolean(get("source.prompt.credentials", "false"));
+        jdkToolsEnabled = Boolean.parseBoolean(get("source.jdk.tools", "true"));
+        trunkValidated = Boolean.parseBoolean(get("source.trunk.validated", "false"));
+        compileCheck = Boolean.parseBoolean(get("source.compile.check", "false"));
+        compileClasspath = get("source.compile.classpath", "");
+        mavenSettings = get("source.maven.settings", "");
 
         // Apply module-specific output defaults when no --output was provided
         if (outputFile.isBlank()) {
@@ -422,6 +440,12 @@ public class AppConfig {
         System.out.println("  --clean-workspace=true|false  Delete component checkout before checkout (default: false)");
         System.out.println("  --fail-on-checkout-error=true|false  Stop on first checkout error (default: false)");
         System.out.println("  --prompt-credentials=true|false  Prompt once for Git/SVN username/password (default: false)");
+        System.out.println("  --jdk-tools=true|false   Run jdeprscan/jdeps + JDK 21 API check on Generated JARs (default: true)");
+        System.out.println("  --trunk-validated=true|false  Trunk already runs on the target; trunk-same findings become");
+        System.out.println("                           NOT REQUIRED (default: false; ComponentList 'Trunk Validated' column wins)");
+        System.out.println("  --compile-check=true|false  Compile each checkout with javac --release 21 (default: false)");
+        System.out.println("  --compile-classpath=<p;p>  Extra jars/dirs for --compile-check (';' or path separator)");
+        System.out.println("  --maven-settings=<file>  settings.xml for Maven classpath resolution in --compile-check");
         System.out.println();
         System.out.println("Module: merge");
         System.out.println("  --ticket-file=<file>     Ticket report Excel  (default: TicketReport.xlsx)");
@@ -536,6 +560,11 @@ public class AppConfig {
     public boolean isCleanWorkspace() { return cleanWorkspace; }
     public boolean isFailOnCheckoutError() { return failOnCheckoutError; }
     public boolean isPromptCredentials() { return promptCredentials; }
+    public boolean isJdkToolsEnabled() { return jdkToolsEnabled; }
+    public boolean isTrunkValidated() { return trunkValidated; }
+    public boolean isCompileCheck() { return compileCheck; }
+    public String getCompileClasspath() { return compileClasspath; }
+    public String getMavenSettings() { return mavenSettings; }
     public boolean isHelpRequested()    { return helpRequested; }
     public boolean isVersionRequested() { return versionRequested; }
 

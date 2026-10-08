@@ -1,237 +1,257 @@
 # WL14 remediation skill guide
 
-This guide explains how to use and share the Cursor skill created at:
+The `wl14-report-remediation` Cursor skill takes an EffortAnalyzer WL14 workbook (for
+example `WL14-Combined.xlsx`) and the `.ea-workspace` folder created with it. It then:
+
+1. Reads every action item from the workbook's hidden `Action Items Raw` sheet.
+2. Scans the **fixable/current** checkout and the **trunk/reference** checkout for each finding.
+3. Fixes the safe findings in the fixable/current checkouts only. Trunk is never modified.
+4. Validates the patched repositories (Maven, Ant, or a `javac --release 21` fallback).
+5. Writes a report of what was fixed, what is pending and why, which findings are false positives
+   or need no change, and where trunk has the same code. It also exports one `.patch` file per repository.
+
+Nothing is committed. You review the patches and commit them yourself.
+
+---
+
+## 1. What is in the skill
+
+```text
+wl14-report-remediation\
+  SKILL.md                      instructions the Cursor agent follows
+  examples.md                   sample prompts and worked decisions
+  reference\rule-playbook.md    how each rule family is decided and fixed
+  scripts\
+    _common.ps1                 shared helpers
+    export-action-items.ps1     workbook -> action-items.json (no Excel needed)
+    scan-evidence.ps1           current vs trunk evidence, false-positive detection
+    check-patch-hygiene.ps1     line-ending/BOM guard, trunk-untouched check, patch export
+    validate-maven-javac.ps1    compile fallback when "mvn compile" is blocked
+    write-report.ps1            remediation-report.md / .csv
+```
+
+Master copy:
 
 ```text
 C:\Development\Documents\EffortAnalyzer\EffortAnalyzer\.cursor\skills\wl14-report-remediation
 ```
 
-The skill is designed for a WL14 combined report such as:
+Ready-to-share zip:
 
 ```text
-C:\Development\Documents\Deliverable\WL14-Combined.xlsx
+C:\Development\Documents\Deliverable\wl14-report-remediation-skill.zip
 ```
 
-and the workspace created while generating that report:
+---
 
-```text
-C:\Development\Documents\Deliverable\.ea-workspace
-```
+## 2. Prerequisites (each team member)
 
-## What the skill does
+| Tool | Why | Check |
+|---|---|---|
+| Cursor (Agent mode) | runs the skill | - |
+| Windows PowerShell 5.1 or PowerShell 7 | runs the scripts | `$PSVersionTable.PSVersion` |
+| SVN command-line client | diff/status/revert of `.ea-workspace` checkouts | `svn --version --quiet` |
+| JDK 21 + `JAVA_HOME` | validation | `java -version` |
+| Maven 3.8+ with corporate settings (Nexus) | PAL-style Maven components | `mvn -v` |
+| Ant + BSystem (`BS4SVN_HOME`) + Ivy | optional, for Ant components | `ant -version` |
 
-The skill guides an AI coding agent to:
+Excel is **not** required, and the workbook may stay open while the skill runs.
+TortoiseSVN users need the "command line client tools" option, which isn't installed by default.
 
-1. Read the hidden `Action Items Raw` sheet from the WL14 workbook.
-2. Use `fixable_source_path` / `Fixable Source Location` as the patch target.
-3. Use `trunk_source_path` / `Trunk Source Location` as read-only comparison input.
-4. Fix safe, localized source findings in the checked-out current/fixable repositories.
-5. Confirm whether each finding is also present in trunk/reference code.
-6. Identify false positives or no-longer-present findings.
-7. Run validation where possible.
-8. Produce a remediation report showing what was fixed and what is pending.
+Run everything from native Windows PowerShell, not WSL. Under WSL, `JAVA_HOME` and `ant` are not available.
 
-The skill does **not** automatically copy trunk over current source. It only uses
-trunk as evidence for focused, minimal patches.
+---
 
-## Files included
+## 3. Install the skill
 
-```text
-.cursor\skills\wl14-report-remediation\SKILL.md
-.cursor\skills\wl14-report-remediation\examples.md
-.cursor\skills\wl14-report-remediation\scripts\export-action-items.ps1
-.cursor\skills\wl14-report-remediation\templates\remediation-report-template.md
-```
+Pick one of these options.
 
-## Before you run it
+### Option A: personal skill (recommended)
 
-Close the workbook in Excel before extraction or report regeneration.
-
-Confirm these exist:
+This makes the skill available in every folder you open in Cursor. It doesn't depend on the
+EffortAnalyzer repository; it only needs the workbook and the workspace.
 
 ```powershell
-Test-Path "C:\Development\Documents\Deliverable\WL14-Combined.xlsx"
-Test-Path "C:\Development\Documents\Deliverable\.ea-workspace"
+$zip = "C:\Development\Documents\Deliverable\wl14-report-remediation-skill.zip"   # or wherever you received it
+$dest = "$env:USERPROFILE\.cursor\skills"
+New-Item -ItemType Directory -Force $dest | Out-Null
+Expand-Archive $zip -DestinationPath $dest -Force
+Get-ChildItem "$dest\wl14-report-remediation" -Recurse | Unblock-File
+Test-Path "$dest\wl14-report-remediation\SKILL.md"    # must print True
 ```
 
-Optional but recommended:
+`Unblock-File` removes the "downloaded from the internet" flag Windows adds to files received via Teams or email.
+
+### Option B: project skill (one repository)
+
+Copy the folder into the repository you open in Cursor:
 
 ```powershell
-svn --version
-java -version
-mvn -v
+Copy-Item -Recurse -Force `
+  "C:\Development\Documents\EffortAnalyzer\EffortAnalyzer\.cursor\skills\wl14-report-remediation" `
+  "C:\Path\To\Repo\.cursor\skills\wl14-report-remediation"
 ```
 
-SVN is only required if you plan to inspect/update SVN metadata. The skill can
-work from the already-created `.ea-workspace` without doing new checkouts.
+### Option C: share through Git
 
-## Recommended prompt to use
+The EffortAnalyzer `.gitignore` currently ignores the whole `.cursor/` folder, so skills are not
+pushed. To version the project skills, replace the `.cursor/` line in `.gitignore` with:
 
-Open the EffortAnalyzer repository in Cursor, then paste this prompt:
+```gitignore
+.cursor/*
+!.cursor/skills/
+```
+
+Then commit `.cursor/skills/wl14-report-remediation`. Team members get the skill with `git pull`.
+
+### Updating the zip after you change the skill
+
+```powershell
+cd C:\Development\Documents\EffortAnalyzer\EffortAnalyzer
+Compress-Archive -Path ".cursor\skills\wl14-report-remediation" `
+  -DestinationPath "C:\Development\Documents\Deliverable\wl14-report-remediation-skill.zip" -Force
+```
+
+After installing or updating, restart Cursor (or open a new chat) so it picks up the skill.
+
+---
+
+## 4. Run it
+
+1. Generate the WL14 workbook with EffortAnalyzer as usual. Keep the `.ea-workspace` folder next to it.
+2. Open any folder in Cursor (EffortAnalyzer or the Deliverable folder). Results are written to
+   `.cursor-output\wl14-remediation\` inside the opened folder.
+3. Start a new chat in **Agent** mode and paste:
 
 ```text
 Use the wl14-report-remediation skill.
-
 ReportPath: C:\Development\Documents\Deliverable\WL14-Combined.xlsx
 WorkspacePath: C:\Development\Documents\Deliverable\.ea-workspace
-
-Please remediate safe HIGH and MEDIUM automation-readiness items first.
-Patch only the fixable/current source paths from the workbook.
-Treat trunk/reference source as read-only comparison input.
-For every item, report whether it was fixed, pending, false positive/no-longer-present, or trunk has the same code.
-Run validation where possible and share the final remediation report.
+Fix what is safe, validate, and give me the report: fixed, pending, false positives,
+and where trunk has the same code.
 ```
 
-To review without edits, add:
+Useful variations:
 
 ```text
-Review-only mode: do not change files.
+Only component: Common Utils v.10.0.8.1
+Only action item IDs: WL14-AI-56B1556F, WL14-AI-CAE6C6DB
+Review-only mode: do not change any file.
 ```
 
-To restrict scope, add one of:
+The agent asks before touching a checkout that already has local modifications.
 
-```text
-Only component: <component name>
-Only action item IDs: <id1>, <id2>, <id3>
-```
+---
 
-## Manual extraction command
+## 5. Read the results
 
-The skill normally runs this itself, but you can run it manually from the
-EffortAnalyzer repository root:
+All files are in `.cursor-output\wl14-remediation\`:
+
+| File | Content |
+|---|---|
+| `remediation-report.md` | the main report (summary, fixed, pending, false positives, trunk comparison, files, validation, next steps) |
+| `remediation-report.csv` | the same rows for Excel filtering |
+| `patches\<repository>.patch` | one SVN/Git diff per patched repository |
+| `evidence-baseline.md` | per-item scan before patching (current vs trunk hit counts) |
+| `evidence-after.json` | scan after patching (what is still left) |
+| `decisions.json` | the agent's per-item decision and reasoning |
+| `validation-*.log/json` | build/compile output |
+
+Outcome meanings:
+
+| Outcome | Meaning | What you do |
+|---|---|---|
+| `FIXED` | patched and compiled/built | review the patch, then commit |
+| `PENDING_VALIDATION` | patched, but the build could not run here | run your normal build, then commit |
+| `PENDING_MANUAL` | not patched: design decision or large change | assign to the component owner |
+| `FALSE_POSITIVE` | the flagged code is not there or is not the flagged API | nothing; optionally tune the EffortAnalyzer rule |
+| `NO_CHANGE_NEEDED` | the detection is real but harmless on WL14 | nothing |
+
+Trunk comparison meanings:
+
+| Value | Meaning |
+|---|---|
+| `TRUNK_SAME` | trunk has the same code or finding, so trunk offers no fix |
+| `TRUNK_FIXED` | trunk no longer has the finding; the agent ports trunk's change or points to it |
+| `TRUNK_FILES_NOT_FOUND` | the file or module no longer exists in trunk |
+| `TRUNK_UNAVAILABLE` | no trunk checkout in the workspace |
+
+The `Identical files x/y` detail shows how many candidate files are byte-identical to trunk.
+
+### Workbooks generated with Trunk Validated / compile check
+
+If trunk already runs on WebLogic 14.1.2 with Java 21, generate the workbook with trunk marked as validated. Use a `Trunk Validated = Yes` column in `ComponentList.xlsx`, or `--trunk-validated=true`. Add `--compile-check=true` for compiler-confirmed evidence:
 
 ```powershell
-$skillDir = "C:\Development\Documents\EffortAnalyzer\EffortAnalyzer\.cursor\skills\wl14-report-remediation"
-& "$skillDir\scripts\export-action-items.ps1" `
-  -ReportPath "C:\Development\Documents\Deliverable\WL14-Combined.xlsx" `
-  -WorkspacePath "C:\Development\Documents\Deliverable\.ea-workspace" `
-  -OutputDirectory ".cursor-output\wl14-remediation"
+java -jar EffortAnalyzer-2.0.0.jar --module=wl14 --mode=both --source-inventory=ComponentList.xlsx `
+  --trunk-validated=true --compile-check=true --output=WL14-Combined.xlsx
 ```
 
-Expected output files:
+The workbook then decides the trunk-same question itself. Items that are identical in the validated trunk are marked **NOT REQUIRED** (`trunk_status = TRUNK_SAME_VALIDATED`). The skill reports them as no change needed and does not patch them. `TRUNK_FIXED` items name the trunk file to port from in `trunk_evidence`.
 
-```text
-.cursor-output\wl14-remediation\action-items.json
-.cursor-output\wl14-remediation\summary.json
-.cursor-output\wl14-remediation\remediation-report.md
-```
+---
 
-## How to review the fixes
+## 6. Review, commit or undo the fixes
 
-The fixes are made inside repositories under:
-
-```text
-C:\Development\Documents\Deliverable\.ea-workspace
-```
-
-For each changed repository/component:
+The fixes are in the checkouts under `.ea-workspace`:
 
 ```powershell
-cd "<fixable_source_path from the report>"
-git status      # if Git checkout
-svn status      # if SVN checkout
+cd "C:\Development\Documents\Deliverable\.ea-workspace\<fixable checkout>"
+svn status
+svn diff
+svn commit -m "WL14: <summary> (WL14-AI-xxxx)"     # when satisfied
+svn revert -R .                                     # to undo everything in that checkout
 ```
 
-Review changed files and run the validation command listed in the remediation
-report. Common examples:
+To apply a patch to another checkout of the same branch:
 
 ```powershell
-mvn -q test
-mvn -q -DskipTests package
-.\gradlew test
+cd C:\path\to\other\checkout
+svn patch C:\...\.cursor-output\wl14-remediation\patches\<repository>.patch
 ```
 
-If validation cannot run because of `JAVA_HOME`, Maven settings, Nexus, or
-credentials, the skill should mark the item as `PENDING_VALIDATION` and copy the
-error into the report.
+Then rebuild the components and re-run EffortAnalyzer WL14 in `both` mode. The fixed findings should drop out.
 
-## Expected final report
+---
 
-The final report should include:
+## 7. Guardrails built into the skill
 
-- report path and workspace path used;
-- number of action items reviewed;
-- fixed items;
-- pending items and blockers;
-- false positives / no-longer-present findings;
-- items where trunk/reference has the same problematic code;
-- files changed by component;
-- validation commands and results;
-- next steps.
+- Patches only `fixable_source_path` checkouts. `check-patch-hygiene.ps1` fails if any trunk checkout is modified.
+- **Never renames `javax.*` to `jakarta.*` for WL14.** WebLogic 14.1.2 on Java 21 is still Java EE 8 and needs `javax`, even though the
+  workbook's `Replacement Symbol` column suggests `jakarta`. Only WL15 workbooks get jakarta migrations.
+- Minimal line-level edits. Line endings and BOM are restored to match SVN, so a one-line fix shows as a one-line diff.
+- Never copies whole trunk files; it ports only the specific change.
+- A regex hit is not treated as proof. For example, `Constructor.newInstance()` is not the deprecated `Class.newInstance()`.
+- Validation failures and blockers are reported, never hidden.
 
-The report skeleton is created at:
+---
 
-```text
-.cursor-output\wl14-remediation\remediation-report.md
-```
+## 8. Troubleshooting
 
-## How to share with team members
+| Symptom | Cause / fix |
+|---|---|
+| `BLOCKED: Workbook does not contain required sheet 'Action Items Raw'` | the workbook was produced by an older EffortAnalyzer; regenerate it with the current version |
+| `mvn compile` fails in `pom-validator-maven-plugin ... org/sonatype/aether/RepositorySystem` | the corporate plugin needs Maven 3.0.x. The skill falls back to `validate-maven-javac.ps1`; run the official build in the CI/build environment |
+| `ant` not found / `Component BSystem is not available` | Ant components need Ant + `BS4SVN_HOME`; items stay `PENDING_VALIDATION` until you build them |
+| `svn` not recognized | install the SVN command-line client and reopen Cursor |
+| scripts blocked "not digitally signed" | run `Get-ChildItem <skill folder> -Recurse \| Unblock-File`; the agent calls them with `-ExecutionPolicy Bypass` anyway |
+| every line shows as changed in `svn diff` | run `check-patch-hygiene.ps1 -FixLineEndings` (the skill does this automatically) |
 
-Share this folder:
+---
 
-```text
-C:\Development\Documents\EffortAnalyzer\EffortAnalyzer\.cursor\skills\wl14-report-remediation
-```
+## 9. Results of the first run (WL14-Combined.xlsx, 7 Oct 2026)
 
-Team members should copy it into the same relative location in their working
-repository:
+| Metric | Count |
+|---|---:|
+| Action items | 27 |
+| Fixed (patched + compiled) | 1 |
+| Pending validation (patched, Ant/official Maven build blocked) | 3 |
+| Pending manual (CGLIB to ByteBuddy, DefaultContext reflection) | 3 |
+| False positive (full) | 0 |
+| No change needed on WL14 (`javax.*` APIs provided, test reflection) | 20 |
+| Trunk has the same code | 21 |
+| Trunk already fixed (CGLIB, Java level) | 3 |
 
-```text
-<their-repo>\.cursor\skills\wl14-report-remediation
-```
-
-For example:
-
-```powershell
-Copy-Item `
-  -Recurse `
-  -Force `
-  "C:\Development\Documents\EffortAnalyzer\EffortAnalyzer\.cursor\skills\wl14-report-remediation" `
-  "C:\Path\To\Their\Repo\.cursor\skills\wl14-report-remediation"
-```
-
-They should then open their repository in Cursor and use the prompt from
-"Recommended prompt to use", changing `ReportPath` and `WorkspacePath` to their
-local paths.
-
-## Sharing as a zip
-
-From the EffortAnalyzer repository root:
-
-```powershell
-Compress-Archive `
-  -Path ".cursor\skills\wl14-report-remediation" `
-  -DestinationPath "wl14-report-remediation-skill.zip" `
-  -Force
-```
-
-Recipient install command:
-
-```powershell
-Expand-Archive "wl14-report-remediation-skill.zip" -DestinationPath "<their-repo>\.cursor\skills" -Force
-```
-
-After extraction, confirm this file exists:
-
-```text
-<their-repo>\.cursor\skills\wl14-report-remediation\SKILL.md
-```
-
-## Guardrails for the team
-
-- Patch only paths listed as `fixable_source_path`.
-- Never edit paths listed as `trunk_source_path`.
-- Never patch generated binaries or build outputs.
-- Do not treat trunk as automatically correct; compare the actual code.
-- If current and trunk both contain the same finding, report `TRUNK_SAME`.
-- If current source no longer contains the flagged symbol, report a false
-  positive/no-longer-present finding rather than making unrelated edits.
-- Always run or record validation.
-
-## Recommended follow-up after fixes
-
-1. Review diffs in each component repository.
-2. Resolve validation blockers such as Maven/JAVA_HOME/Nexus access.
-3. Rebuild affected components.
-4. Regenerate the WL14 combined report using `both` mode.
-5. Confirm fixed action items disappear or move to a resolved/validated state.
+Changed: 7 files, 11 changed lines, across Cluster and Runtime Services, Common Utils and
+Platform Abstraction Layer. One additional trunk-backed fix was made outside the workbook
+(`sun.misc.Service` replaced with `ServiceLoader`). Full details are in `.cursor-output\wl14-remediation\remediation-report.md`.

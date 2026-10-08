@@ -202,6 +202,27 @@ class AppConfigTest {
         });
         assertEquals("", cfg.validate());
         assertTrue(cfg.isPromptCredentials());
+        assertTrue(cfg.isJdkToolsEnabled(), "JDK tool evidence is on by default");
+    }
+
+    @Test
+    void jdkToolsCanBeDisabled() {
+        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl14", "--jdk-tools=false"});
+        assertFalse(cfg.isJdkToolsEnabled());
+    }
+
+    @Test
+    void trunkAndCompileCheckOptionsAreParsed() {
+        AppConfig defaults = AppConfig.parse(new String[]{"--module=wl14"});
+        assertFalse(defaults.isTrunkValidated(), "trunk is not assumed validated");
+        assertFalse(defaults.isCompileCheck(), "compile check is opt-in");
+
+        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl14", "--trunk-validated=true", "--compile-check=true",
+                "--compile-classpath=C:/libs;C:/wl/api.jar", "--maven-settings=settings-local.xml"});
+        assertTrue(cfg.isTrunkValidated());
+        assertTrue(cfg.isCompileCheck());
+        assertEquals("C:/libs;C:/wl/api.jar", cfg.getCompileClasspath());
+        assertEquals("settings-local.xml", cfg.getMavenSettings());
     }
 
     @Test

@@ -203,6 +203,15 @@ public final class Java21SourceRules {
         both("J21-JR-024", "JAVA_REMOVED", "javafx.", "HIGH", "11",
                 "JavaFX is no longer bundled with the JDK as of Java 11/OpenJDK distributions.",
                 "Add OpenJFX dependencies/plugins explicitly or migrate UI technology.");
+        both("J21-JR-025", "JAVA_REMOVED", "sun.misc.Service", "CRITICAL", "9",
+                "sun.misc.Service was removed in JDK 9; code using it does not compile or link on Java 21.",
+                "Use java.util.ServiceLoader.load(Type.class) and iterate the loaded providers.");
+        both("J21-JR-026", "JAVA_REMOVED", "java.security.acl", "CRITICAL", "14",
+                "The java.security.acl package was removed in JDK 14.",
+                "Replace with java.security.Policy/Principal-based checks or the application's own ACL model.");
+        java("J21-JR-027", "JAVA_REMOVED", "Thread.destroy", "CRITICAL", "11",
+                "Thread.destroy() was removed from the JDK.",
+                "Remove the call; use interruption and cooperative shutdown.");
     }
 
     private void internalApis() {
@@ -227,15 +236,18 @@ public final class Java21SourceRules {
         java("J21-JD-001", "JAVA_DEPRECATED", "finalize", "HIGH", "18",
                 "Finalization is deprecated for removal and can be disabled in modern Java (JEP 421).",
                 "Replace finalize() cleanup with try-with-resources, AutoCloseable, or java.lang.ref.Cleaner.");
-        java("J21-JD-002", "JAVA_DEPRECATED", "Thread.stop", "HIGH", "1.2",
-                "Thread.stop() is deprecated and unsafe; it can corrupt shared state.",
+        java("J21-JD-002", "JAVA_DEPRECATED", "Thread.stop", "CRITICAL", "20",
+                "Thread.stop() throws UnsupportedOperationException since JDK 20.",
                 "Use interruption, cancellation tokens, executors, and cooperative shutdown.");
-        java("J21-JD-003", "JAVA_DEPRECATED", "Thread.suspend", "HIGH", "1.2",
-                "Thread.suspend() is deprecated and can deadlock.",
+        java("J21-JD-003", "JAVA_DEPRECATED", "Thread.suspend", "CRITICAL", "20",
+                "Thread.suspend() throws UnsupportedOperationException since JDK 20.",
                 "Use java.util.concurrent primitives or cooperative blocking controls.");
-        java("J21-JD-004", "JAVA_DEPRECATED", "Thread.resume", "HIGH", "1.2",
-                "Thread.resume() is deprecated and commonly paired with unsafe suspend().",
+        java("J21-JD-004", "JAVA_DEPRECATED", "Thread.resume", "CRITICAL", "20",
+                "Thread.resume() throws UnsupportedOperationException since JDK 20.",
                 "Use java.util.concurrent primitives or cooperative blocking controls.");
+        java("J21-JD-007", "JAVA_DEPRECATED", "System.setSecurityManager", "CRITICAL", "18",
+                "System.setSecurityManager() throws UnsupportedOperationException since JDK 18 unless -Djava.security.manager=allow (JEP 411).",
+                "Remove the Security Manager dependency; enforce permissions in the application or container instead.");
         java("J21-JD-005", "JAVA_DEPRECATED", "System.runFinalizersOnExit", "CRITICAL", "11",
                 "System.runFinalizersOnExit was removed after long deprecation.",
                 "Remove the call; manage resources explicitly.");

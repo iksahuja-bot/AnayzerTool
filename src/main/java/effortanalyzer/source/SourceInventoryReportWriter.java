@@ -42,6 +42,14 @@ public class SourceInventoryReportWriter {
             "INFO", IndexedColors.LIGHT_GREEN
     );
 
+    private static final Map<String, String> KNOWN_REPLACEMENTS = Map.of(
+            "newInstance()", "getDeclaredConstructor().newInstance()",
+            "sun.misc.Service", "java.util.ServiceLoader",
+            "sun.misc.BASE64Encoder", "java.util.Base64.getEncoder()",
+            "sun.misc.BASE64Decoder", "java.util.Base64.getDecoder()",
+            "sun.misc.Cleaner", "java.lang.ref.Cleaner"
+    );
+
     public void write(String outputFile, String module, List<SourceScanResult> results) throws IOException {
         Path outPath = Path.of(outputFile).toAbsolutePath();
         ExcelUtils.validateAndPrepareOutput(outPath, logger);
@@ -188,6 +196,25 @@ public class SourceInventoryReportWriter {
         addInstRow(sheet, s, r++, "CONFIG_ONLY / BUILD_ONLY / TEST_ONLY", "Source evidence is config/build/test scoped and may not appear in class bytecode. Severity and confidence remain separate fields.");
         r++;
 
+        addSection(sheet, s, r++, "JAVA 21 IMPACT GUIDE");
+        addInstRow(sheet, s, r++, "BREAKS_COMPILE / BREAKS_RUNTIME", "API is absent from JDK 21 or throws UnsupportedOperationException. Required fix.");
+        addInstRow(sheet, s, r++, "BREAKS_ACCESS", "Strongly encapsulated JDK internal. Replace with a public API; --add-opens/--add-exports is only a stopgap.");
+        addInstRow(sheet, s, r++, "DEPRECATED_FOR_REMOVAL", "Works on Java 21; plan the replacement before the next JDK upgrade.");
+        addInstRow(sheet, s, r++, "DEPRECATED (OPTIONAL_CLEANUP)", "Works on Java 21 (for example Class.newInstance()). Fix only when touching the code; not a migration blocker.");
+        addInstRow(sheet, s, r++, "PLATFORM_PROVIDED", "API removed from Java SE but supplied by the target server (WL14 = WebLogic 14.1.2 on Java 21: javax.annotation, javax.transaction, JAXB, JAX-WS, SAAJ, JAF, JWS). Listed in Source Findings only; keep javax.* and declare the API jar with provided scope.");
+        addInstRow(sheet, s, r++, "Scanner = JDK Tools", "Owner-resolved bytecode evidence from jdeprscan --release 21, jdeps --jdk-internals, and a check of every java.* class/member reference against JDK 21. Runs on Generated JARs, and on javac output when --compile-check compiles a component cleanly. Disable with --jdk-tools=false.");
+        addInstRow(sheet, s, r++, "Scanner = Compile Check", "--compile-check=true compiles each checkout with javac --release 21. Findings are CONFIRMED_COMPILER (or CONFIRMED_SOURCE_AND_COMPILER when a pattern rule hit the same line). Missing non-JDK classes only lower the Compile Check status to INCOMPLETE_CLASSPATH; they are never findings.");
+        addInstRow(sheet, s, r++, "BUILD_CLASSPATH", "WL14 only: javac cannot find a javax.* API that WebLogic 14.1.2 provides at runtime. Keep the code; declare the API jar with provided scope.");
+        r++;
+
+        addSection(sheet, s, r++, "TRUNK STATUS GUIDE");
+        addInstRow(sheet, s, r++, "TRUNK_SAME_VALIDATED", "Trunk is marked Trunk Validated (it already runs on the target) and has the same code. NOT REQUIRED: excluded from the checklist, effort, and required action-item counts.");
+        addInstRow(sheet, s, r++, "TRUNK_SAME", "Trunk has the same code but is not marked validated. Trunk has not fixed it either. Set Trunk Validated = Yes in the inventory, or --trunk-validated=true, if trunk runs on the target.");
+        addInstRow(sheet, s, r++, "TRUNK_FIXED", "The class/file exists in trunk without this finding. Trunk Evidence names the trunk file; port that change.");
+        addInstRow(sheet, s, r++, "TRUNK_REMOVED", "The class/file is not in trunk; trunk restructured this code. Review trunk before editing.");
+        addInstRow(sheet, s, r++, "TRUNK_PARTIAL / NOT_COMPARED", "Mixed results across files, or no trunk checkout to compare with (see Trunk Evidence for the reason).");
+        r++;
+
         addSection(sheet, s, r++, "RECOMMENDED STEPS");
         addInstRow(sheet, s, r++, "Step 1 — Validate checkouts", "Open Checkout Errors and fix SCM/PATH/credential failures first.");
         addInstRow(sheet, s, r++, "Step 2 — Assess scope", "Open 📊 Summary to see the action-item-based component backlog and checkout coverage.");
@@ -217,7 +244,7 @@ public class SourceInventoryReportWriter {
 
     private void writeSummarySheet(Workbook wb, Styles s, String module, List<SourceScanResult> results) {
         Sheet sheet = wb.createSheet(SUMMARY_SHEET);
-        int[] widths = {36, 14, 14, 14, 14, 14, 14, 14, 14, 18};
+        int[] widths = {36, 14, 14, 14, 14, 14, 14, 14, 14, 18, 14, 14, 26};
         for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
 
         int r = 0;
@@ -228,13 +255,16 @@ public class SourceInventoryReportWriter {
         sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, widths.length - 1));
 
         Row info = sheet.createRow(r++);
-        List<ActionItem> actionItems = focusedActionItems(results);
+        List<ActionItem> allItems = focusedActionItems(results);
+        List<ActionItem> actionItems = allItems.stream().filter(item -> !item.notRequired()).toList();
+        List<SourceFinding> correlatedAll = allFindings(results);
         Cell ic = info.createCell(0);
         ic.setCellValue("Generated: " + LocalDate.now()
                 + "   |   Components: " + results.size()
                 + "   |   Checkout failures: " + checkoutFailureCount(results)
                 + "   |   Files scanned: " + totalFilesScanned(results)
-                + "   |   Action items: " + actionItems.size());
+                + "   |   Action items: " + actionItems.size()
+                + (allItems.size() > actionItems.size() ? " (+" + (allItems.size() - actionItems.size()) + " not required)" : ""));
         ic.setCellStyle(s.infoBar);
         sheet.addMergedRegion(new CellRangeAddress(r - 1, r - 1, 0, widths.length - 1));
         r++;
@@ -247,8 +277,23 @@ public class SourceInventoryReportWriter {
                 {"Successful checkouts/updates", String.valueOf(results.stream().filter(x -> x.checkout().success()).count())},
                 {"Checkout/update failures", String.valueOf(checkoutFailureCount(results))},
                 {"Files scanned", String.valueOf(totalFilesScanned(results))},
-                {"Focused action items", String.valueOf(actionItems.size())},
-                {"Raw correlated findings", String.valueOf(allFindings(results).size())}
+                {"Focused action items (required)", String.valueOf(actionItems.size())},
+                {"Not required: same code in validated trunk", String.valueOf(allItems.size() - actionItems.size())},
+                {"Action items already fixed in trunk (port from trunk)",
+                        String.valueOf(allItems.stream().filter(item -> TrunkComparator.FIXED.equals(item.trunkStatus())).count())},
+                {"Action items also present in trunk (trunk not validated)",
+                        String.valueOf(allItems.stream().filter(item -> TrunkComparator.SAME.equals(item.trunkStatus())).count())},
+                {"Action items whose class/file is gone from trunk",
+                        String.valueOf(allItems.stream().filter(item -> TrunkComparator.REMOVED.equals(item.trunkStatus())).count())},
+                {"Raw correlated findings", String.valueOf(correlatedAll.size())},
+                {"Platform-provided references (not action items)",
+                        String.valueOf(correlatedAll.stream().filter(SourceInventoryReportWriter::isPlatformProvided).count())},
+                {"JDK tool findings (jdeprscan/jdeps/JDK API check)",
+                        String.valueOf(correlatedAll.stream().filter(f -> JdkToolScanner.SCANNER.equals(f.scanner())).count())},
+                {"Compiler-confirmed findings (javac --release 21)",
+                        String.valueOf(correlatedAll.stream().filter(CompileChecker::isCompilerConfirmed).count())},
+                {"Components compiled with --compile-check",
+                        String.valueOf(results.stream().filter(x -> x.compileCheck().ran()).count())}
         };
         for (String[] metric : metrics) {
             Row row = sheet.createRow(r++);
@@ -272,7 +317,8 @@ public class SourceInventoryReportWriter {
 
         r++;
         Row compHdr = sheet.createRow(r++);
-        String[] cols = {"Component", "Checkout", "Files", "Action Items", "Bytecode Findings", "Confirmed", "Source-only", "Generated JARs", "Medium/Warning", "High"};
+        String[] cols = {"Component", "Checkout", "Files", "Action Items", "Bytecode Findings", "Confirmed", "Source-only", "Generated JARs", "Medium/Warning", "High",
+                "Fixed in Trunk", "Not Required", "Compile Check"};
         for (int i = 0; i < cols.length; i++) cellH(compHdr, s.colHeader, i, cols[i]);
         sheet.setAutoFilter(new CellRangeAddress(compHdr.getRowNum(), compHdr.getRowNum(), 0, cols.length - 1));
         sheet.createFreezePane(0, compHdr.getRowNum() + 1);
@@ -292,16 +338,21 @@ public class SourceInventoryReportWriter {
             row.createCell(7).setCellValue(result.component().generatedJars().size());
             row.createCell(8).setCellValue(countActionSeverity(componentActions, "MEDIUM") + countActionSeverity(componentActions, "WARNING"));
             row.createCell(9).setCellValue(countActionSeverity(componentActions, "HIGH"));
+            row.createCell(10).setCellValue(componentActions.stream().filter(item -> TrunkComparator.FIXED.equals(item.trunkStatus())).count());
+            row.createCell(11).setCellValue(allItems.stream()
+                    .filter(item -> item.notRequired() && displayComponent(item.first).equals(result.component().displayName()))
+                    .count());
+            row.createCell(12).setCellValue(result.compileCheck().status());
         }
     }
 
     private void writeInventorySheet(Workbook wb, Styles s, String module, List<SourceScanResult> results) {
         Sheet sheet = wb.createSheet(SOURCE_INVENTORY_SHEET);
-        int[] widths = {14, 28, 58, 58, 10, 10, 18, 58, 18, 58, 14, 12, 18, 55, 35, 24};
+        int[] widths = {14, 28, 58, 58, 10, 10, 18, 58, 18, 58, 14, 12, 18, 55, 35, 24, 16, 70};
         for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
 
         int r = addTitleAndInfo(sheet, s, "Source Inventory", "One row per repository component from the input workbook.", widths.length);
-        String[] headers = {"Module", "Component", "Repository", "Trunk", "Type", "Enabled", "Checkout Status", "Checkout Path", "Trunk Checkout Status", "Trunk Checkout Path", "Files Scanned", "Findings", "Bytecode Findings", "Generated JARs", "Application Packages", "Ownership"};
+        String[] headers = {"Module", "Component", "Repository", "Trunk", "Type", "Enabled", "Checkout Status", "Checkout Path", "Trunk Checkout Status", "Trunk Checkout Path", "Files Scanned", "Findings", "Bytecode Findings", "Generated JARs", "Application Packages", "Ownership", "Trunk Validated", "Compile Check"};
         writeHeader(sheet, s.colHeader, r++, headers);
         sheet.setAutoFilter(new CellRangeAddress(r - 1, r - 1, 0, headers.length - 1));
         sheet.createFreezePane(0, r);
@@ -331,6 +382,9 @@ public class SourceInventoryReportWriter {
                 row.createCell(13).setCellValue(result.component().generatedJarsDisplay());
                 row.createCell(14).setCellValue(result.component().applicationPackagesDisplay());
                 row.createCell(15).setCellValue(result.component().ownership());
+                row.createCell(16).setCellValue(result.component().trunk().isBlank() ? ""
+                        : result.component().isTrunkValidated() ? "Yes" : "No");
+                set(row, 17, result.compileCheck().display(), s.wrap);
                 if (!result.checkout().success()) row.getCell(6).setCellStyle(s.checkoutError);
                 if (result.trunkCheckout() != null && !result.trunkCheckout().success()
                         && !"TRUNK_NOT_PROVIDED".equals(result.trunkCheckout().status())) row.getCell(8).setCellStyle(s.checkoutError);
@@ -340,7 +394,7 @@ public class SourceInventoryReportWriter {
 
     private void writeFindingsSheet(Workbook wb, Styles s, String module, List<SourceScanResult> results) {
         Sheet sheet = wb.createSheet(SOURCE_FINDINGS_SHEET);
-        int[] widths = {28, 52, 14, 24, 12, 18, 26, 14, 14, 14, 38, 20, 50, 8, 38, 54, 54, 70, 40, 24};
+        int[] widths = {28, 52, 14, 24, 12, 18, 26, 14, 14, 14, 38, 20, 50, 8, 38, 54, 54, 70, 40, 24, 22, 60};
         for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
 
         int r = addTitleAndInfo(sheet, s, productName(module) + " Source Findings — Full Detail",
@@ -352,7 +406,7 @@ public class SourceInventoryReportWriter {
             return;
         }
 
-        String[] headers = {"Component", "Repository", "Scanner", "Category", "Severity", "Detection Source", "Validation Status", "Confidence", "Matched In Source", "Matched In Bytecode", "Matched JARs", "Reason Code", "File", "Line", "Rule", "Description", "Remediation", "Context", "Matched Classes", "Ownership"};
+        String[] headers = {"Component", "Repository", "Scanner", "Category", "Severity", "Detection Source", "Validation Status", "Confidence", "Matched In Source", "Matched In Bytecode", "Matched JARs", "Reason Code", "File", "Line", "Rule", "Description", "Remediation", "Context", "Matched Classes", "Ownership", "Trunk Status", "Trunk Evidence"};
         writeHeader(sheet, s.colHeader, r++, headers);
         sheet.setAutoFilter(new CellRangeAddress(r - 1, r - 1, 0, headers.length - 1));
         sheet.createFreezePane(0, r);
@@ -406,12 +460,14 @@ public class SourceInventoryReportWriter {
 
             set(row, 18, f.bytecodeClass(), s.wrap);
             set(row, 19, f.ownership(), s.wrap);
+            set(row, 20, f.trunkStatus(), s.wrap);
+            set(row, 21, f.trunkEvidence(), s.wrap);
         }
     }
 
     private void writeActionItemsSheet(Workbook wb, Styles s, String module, List<SourceScanResult> results) {
         Sheet sheet = wb.createSheet(ACTION_ITEMS_SHEET);
-        int[] widths = {18, 10, 18, 24, 28, 22, 34, 14, 14, 14, 16, 22, 22, 28, 28, 36, 70, 70, 42, 58, 58, 70, 32, 50, 40, 24};
+        int[] widths = {18, 10, 18, 24, 28, 22, 34, 14, 14, 14, 16, 22, 22, 28, 28, 36, 70, 70, 42, 58, 58, 70, 32, 50, 40, 24, 44, 24, 60};
         for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
 
         int r = addTitleAndInfo(sheet, s, productName(module) + " Focused Action Items",
@@ -420,7 +476,7 @@ public class SourceInventoryReportWriter {
         String[] headers = {"Action Item ID", "Priority", "Confidence", "Remediation Type", "Component", "Ownership", "Issue / Rule / API", "Severity",
                 "Evidence", "Raw Count", "Files", "Detection Source", "Validation Status", "Automation Readiness", "Detected Symbol", "Replacement Symbol",
                 "Recommended Code Change", "Automation Starting Point", "Primary File", "Fixable Source Location", "Trunk Source Location", "Trunk Fix Guidance", "Line Hints",
-                "Sample Files", "Matched JARs / Classes", "Noise / Review Reason"};
+                "Sample Files", "Matched JARs / Classes", "Noise / Review Reason", "Java 21 Impact", "Trunk Status", "Trunk Evidence"};
         writeHeader(sheet, s.colHeader, r++, headers);
         sheet.setAutoFilter(new CellRangeAddress(r - 1, r - 1, 0, headers.length - 1));
         sheet.createFreezePane(0, r);
@@ -476,9 +532,9 @@ public class SourceInventoryReportWriter {
             set(row, 12, joinLimited(item.validationStatuses, 4), s.wrap);
             set(row, 13, automationReadiness(f, item), s.wrap);
             set(row, 14, detectedSymbol(f), s.wrap);
-            set(row, 15, replacementSymbol(f), s.wrap);
-            set(row, 16, recommendedCodeChange(f), s.wrap);
-            set(row, 17, automationStartingPoint(f, item), s.wrap);
+            set(row, 15, replacementSymbol(module, f), s.wrap);
+            set(row, 16, recommendedCodeChange(module, f), s.wrap);
+            set(row, 17, automationStartingPoint(module, f, item), s.wrap);
             set(row, 18, item.primaryFile(), s.wrap);
             set(row, 19, fixableSourceLocation(sourceComponent, results), s.wrap);
             set(row, 20, trunkSourceLocation(sourceComponent, results), s.wrap);
@@ -487,6 +543,9 @@ public class SourceInventoryReportWriter {
             set(row, 23, joinLimited(item.files, 6), s.wrap);
             set(row, 24, matchedEvidence(item), s.wrap);
             set(row, 25, noiseReason(f, item), s.wrap);
+            set(row, 26, java21Impact(f), s.wrap);
+            set(row, 27, item.trunkStatus(), s.wrap);
+            set(row, 28, joinLimited(item.trunkEvidence, 4), s.wrap);
         }
         groupActionItemRows(sheet, componentStartRow, r - 1);
         sheet.setRowSumsBelow(false);
@@ -494,13 +553,14 @@ public class SourceInventoryReportWriter {
 
     private void writeActionItemsRawSheet(Workbook wb, Styles s, String module, List<SourceScanResult> results) {
         Sheet sheet = wb.createSheet(ACTION_ITEMS_RAW_SHEET);
-        int[] widths = {18, 24, 28, 22, 34, 14, 18, 28, 28, 28, 36, 40, 70, 70, 70, 58, 58, 18, 58, 18, 50, 22, 20, 18, 18, 18, 22, 22};
+        int[] widths = {18, 24, 28, 22, 34, 14, 18, 28, 28, 28, 36, 40, 70, 70, 70, 58, 58, 18, 58, 18, 50, 22, 20, 18, 18, 18, 22, 22, 44, 24, 60};
         for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
 
         String[] headers = {"action_item_id", "remediation_type", "component", "ownership", "rule", "severity", "confidence",
                 "automation_readiness", "detected_symbol", "replacement_symbol", "primary_file", "line_hints", "all_candidate_files",
                 "recommended_code_change", "automation_starting_point", "fixable_source_url", "fixable_source_path", "trunk_source_url", "trunk_source_path", "trunk_checkout_status", "trunk_fix_guidance", "raw_count", "file_count",
-                "evidence", "detection_sources", "validation_statuses", "suggested_validation", "automation_guardrails"};
+                "evidence", "detection_sources", "validation_statuses", "suggested_validation", "automation_guardrails", "java21_impact",
+                "trunk_status", "trunk_evidence"};
         writeHeader(sheet, s.colHeader, 0, headers);
         sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, headers.length - 1));
         sheet.createFreezePane(0, 1);
@@ -521,12 +581,12 @@ public class SourceInventoryReportWriter {
             set(row, 6, item.confidenceLabel(), s.wrap);
             set(row, 7, automationReadiness(f, item), s.wrap);
             set(row, 8, detectedSymbol(f), s.wrap);
-            set(row, 9, replacementSymbol(f), s.wrap);
+            set(row, 9, replacementSymbol(module, f), s.wrap);
             set(row, 10, item.primaryFile(), s.wrap);
             set(row, 11, item.lineHints(), s.wrap);
             set(row, 12, joinLimited(item.files, 1000), s.wrap);
-            set(row, 13, recommendedCodeChange(f), s.wrap);
-            set(row, 14, automationStartingPoint(f, item), s.wrap);
+            set(row, 13, recommendedCodeChange(module, f), s.wrap);
+            set(row, 14, automationStartingPoint(module, f, item), s.wrap);
             SourceScanResult sourceResult = sourceResultForComponent(sourceComponent, results);
             set(row, 15, sourceComponent == null ? "" : sourceComponent.repository(), s.wrap);
             set(row, 16, sourceResult == null ? "" : checkoutPath(sourceResult.checkout()), s.wrap);
@@ -541,6 +601,9 @@ public class SourceInventoryReportWriter {
             set(row, 25, joinLimited(item.validationStatuses, 1000), s.wrap);
             set(row, 26, suggestedValidation(), s.wrap);
             set(row, 27, automationGuardrails(sourceComponent, f, item, sourceResult), s.wrap);
+            set(row, 28, java21Impact(f), s.wrap);
+            set(row, 29, item.trunkStatus(), s.wrap);
+            set(row, 30, joinLimited(item.trunkEvidence, 1000), s.wrap);
         }
     }
 
@@ -608,6 +671,7 @@ public class SourceInventoryReportWriter {
 
         Map<String, ChecklistItem> items = new LinkedHashMap<>();
         for (SourceFinding f : sortedFindings(results)) {
+            if (isPlatformProvided(f) || isNotRequired(f)) continue;
             String key = severityBucket(f.severity()) + "|" + safe(f.component()) + "|" + safe(f.category()) + "|" + safe(f.rule()) + "|" + safe(f.validationStatus()) + "|" + safe(f.remediation());
             ChecklistItem item = items.computeIfAbsent(key, ignored -> new ChecklistItem(f));
             item.files.add(safe(f.file()));
@@ -671,7 +735,10 @@ public class SourceInventoryReportWriter {
             Cell effort = row.createCell(7);
             effort.setCellValue(hours);
             effort.setCellStyle(s.effortNum);
-            set(row, 8, result.checkout().success() ? "" : "Checkout failed; estimate may be incomplete.", s.wrap);
+            long notRequired = correlated.stream().filter(SourceInventoryReportWriter::isNotRequired).count();
+            String notes = result.checkout().success() ? "" : "Checkout failed; estimate may be incomplete.";
+            if (notRequired > 0) notes = (notes + " " + notRequired + " finding(s) excluded: same code in validated trunk.").trim();
+            set(row, 8, notes, s.wrap);
         }
 
         Row total = sheet.createRow(r);
@@ -793,7 +860,7 @@ public class SourceInventoryReportWriter {
     private static List<ActionItem> focusedActionItems(List<SourceScanResult> results) {
         Map<String, ActionItem> grouped = new LinkedHashMap<>();
         for (SourceFinding f : sortedFindings(results)) {
-            if (isLowSignalNoise(f)) continue;
+            if (isLowSignalNoise(f) || isPlatformProvided(f)) continue;
             String key = displayComponent(f) + "|" + safe(f.scanner()) + "|" + safe(f.category())
                     + "|" + safe(f.rule()) + "|" + severityBucket(f.severity()) + "|" + safe(f.ownership());
             grouped.computeIfAbsent(key, ignored -> new ActionItem(f)).add(f);
@@ -814,6 +881,58 @@ public class SourceInventoryReportWriter {
                 && !"APPLICATION_CODE".equals(ownership);
     }
 
+    private static boolean isPlatformProvided(SourceFinding f) {
+        return TargetPlatformPolicy.PLATFORM_PROVIDED.equalsIgnoreCase(safe(f.category()))
+                || CompileChecker.BUILD_CLASSPATH.equalsIgnoreCase(safe(f.category()));
+    }
+
+    private static boolean isNotRequired(SourceFinding f) {
+        return TrunkComparator.SAME_VALIDATED.equals(f.trunkStatus());
+    }
+
+    private static boolean isOptionalCleanup(SourceFinding f) {
+        String category = safe(f.category()).toUpperCase();
+        if (JdkToolScanner.JDK_DEPRECATED.equals(category)) return true;
+        return ("JAVA_BEHAVIOR".equals(category) || "JAVA_DEPRECATED".equals(category))
+                && "INFO".equals(severityBucket(f.severity()));
+    }
+
+    private static boolean usesJakartaNamespace(String module) {
+        String m = safe(module).toLowerCase();
+        return m.equals("wl15") || m.equals("wl-jboss27");
+    }
+
+    /** Plain-language Java 21 impact derived from the rule kind, independent of the numeric severity. */
+    private static String java21Impact(SourceFinding f) {
+        String category = safe(f.category()).toUpperCase();
+        String severity = severityBucket(f.severity());
+        if (TargetPlatformPolicy.PLATFORM_PROVIDED.equals(category)) return "PLATFORM_PROVIDED — supplied by the target server; no code change";
+        if (isOptionalCleanup(f)) return "DEPRECATED — still works on Java 21; optional cleanup";
+        return switch (category) {
+            case "JAVA_REMOVED", JdkToolScanner.JDK_REMOVED_API, JdkToolScanner.JDK_REMOVED_INTERNAL_API ->
+                    "BREAKS_COMPILE — API is absent from JDK 21";
+            case "JAVA_INTERNAL", JdkToolScanner.JDK_INTERNAL_API ->
+                    "BREAKS_ACCESS — strongly encapsulated JDK internal; needs a public API or --add-exports/--add-opens";
+            case JdkToolScanner.JDK_UNSUPPORTED_API -> "WORKS_WITH_RISK — jdk.unsupported API, still exported on Java 21";
+            case JdkToolScanner.JDK_UNSUPPORTED_AT_RUNTIME -> "BREAKS_RUNTIME — throws UnsupportedOperationException on Java 21";
+            case JdkToolScanner.JDK_DEPRECATED_FOR_REMOVAL -> "DEPRECATED_FOR_REMOVAL — works on Java 21; plan before the next JDK";
+            case "JAVA_DEPRECATED" -> "CRITICAL".equals(severity)
+                    ? "BREAKS_RUNTIME_OR_COMPILE — removed or unsupported on Java 21"
+                    : "DEPRECATED_FOR_REMOVAL — works on Java 21; plan replacement";
+            case "JAVA_BEHAVIOR" -> "RUNTIME_RISK — depends on target class/class loader; verify on Java 21";
+            case "BUILD_JAVA_LEVEL", "BUILD_MODULE" -> "BUILD_LEVEL — compiler source/target/module configuration";
+            case "JVM_ARG_MODULE" -> "INFO".equals(severity)
+                    ? "JVM_MODULE_FLAG — valid on Java 21; encapsulation workaround to review, not a blocker"
+                    : "JVM_OPTION — obsolete on Java 17+; the JVM ignores it with a warning";
+            case "JVM_TOOL_REMOVED" -> "TOOL_REMOVED — command-line tool is absent from JDK 21";
+            case CompileChecker.JAVA21_LANGUAGE -> "BREAKS_COMPILE — Java language change (reserved identifier or syntax)";
+            case CompileChecker.BUILD_CLASSPATH -> "BUILD_CLASSPATH — server-provided API missing from the compile classpath; no code change";
+            default -> category.startsWith("JVM_")
+                    ? "JVM_OPTION — removed/obsolete option; the JVM may refuse to start"
+                    : "LIBRARY_OR_PLATFORM_API — see rule description";
+        };
+    }
+
     private static String actionItemId(String module, ActionItem item) {
         SourceFinding f = item.first;
         String key = String.join("|", safe(module).toLowerCase(), displayComponent(f), safe(f.scanner()), safe(f.category()),
@@ -831,12 +950,14 @@ public class SourceInventoryReportWriter {
         String file = safe(f.file()).toLowerCase();
         String rule = safe(f.rule()).toLowerCase();
         if ("BUILD_ONLY".equals(status) || file.endsWith("pom.xml") || file.endsWith("build.gradle")
-                || file.endsWith("settings.gradle") || category.contains("library") || scanner.contains("library")) {
+                || file.endsWith("settings.gradle") || category.contains("library") || scanner.contains("library")
+                || CompileChecker.BUILD_CLASSPATH.equalsIgnoreCase(category)) {
             return "DEPENDENCY_OR_BUILD_UPDATE";
         }
         if ("CONFIG_ONLY".equals(status) || file.endsWith(".xml") || file.endsWith(".properties") || file.endsWith(".yaml") || file.endsWith(".yml")) {
             return "CONFIG_UPDATE";
         }
+        if (isOptionalCleanup(f)) return "OPTIONAL_CLEANUP";
         if (category.contains("spring") || category.contains("guava") || category.contains("guice")) return "API_UPGRADE";
         if (category.contains("java") || rule.startsWith("javax.")) return "JAVA_API_MIGRATION";
         if (category.contains("weblogic") || rule.contains("weblogic")) return "WEBLOGIC_API_REPLACEMENT";
@@ -846,10 +967,16 @@ public class SourceInventoryReportWriter {
 
     private static String automationReadiness(SourceFinding f, ActionItem item) {
         String status = safe(f.validationStatus()).toUpperCase();
+        if (item.notRequired()) return "NOT REQUIRED — identical code runs in the validated trunk; no change needed";
+        if (isOptionalCleanup(f)) return "OPTIONAL — deprecated but works on Java 21; fix only when touching this code";
         if (item.files.isEmpty()) return "LOW — no source file candidate";
         if (item.files.size() > 10) return "LOW — broad multi-file change";
         if ("TEST_ONLY".equals(status)) return "LOW — test-scoped/manual priority decision";
-        if ("CONFIRMED_BYTECODE_ONLY".equals(status)) return "LOW — map bytecode back to source first";
+        if ("CONFIRMED_BYTECODE_ONLY".equals(status)) {
+            return item.primaryFile().toLowerCase().endsWith(".java")
+                    ? "MEDIUM — bytecode evidence mapped to the source file; confirm the line hint"
+                    : "LOW — map bytecode back to source first";
+        }
         if ("BUILD_ONLY".equals(status) || "CONFIG_ONLY".equals(status)) return "MEDIUM — structured non-Java edit";
         if (item.hasConfirmedEvidence()) return "HIGH — confirmed focused source edit";
         if ("CANDIDATE_SOURCE_ONLY".equals(status)) return "MEDIUM — source candidate; verify generated artifact mapping";
@@ -863,23 +990,39 @@ public class SourceInventoryReportWriter {
         return safe(f.context());
     }
 
-    private static String replacementSymbol(SourceFinding f) {
-        String remediation = safe(f.remediation());
+    private static String replacementSymbol(String module, SourceFinding f) {
+        String remediation = safe(f.remediation()).toLowerCase();
         String rule = safe(f.rule());
-        if (rule.startsWith("javax.")) return "jakarta." + rule.substring("javax.".length());
-        if (remediation.toLowerCase().contains("jakarta")) return "jakarta.* equivalent";
-        if (remediation.toLowerCase().contains("supported replacement")) return "supported replacement from rule guidance";
+        if (isPlatformProvided(f)) return "none — keep " + rule + " (provided by " + productName(module) + ")";
+        String known = KNOWN_REPLACEMENTS.get(rule);
+        if (known != null) return known;
+        String jdk = JdkToolScanner.knownReplacement(rule);
+        if (!jdk.isBlank()) return jdk;
+        if (rule.startsWith("javax.")) {
+            if (usesJakartaNamespace(module)) return "jakarta." + rule.substring("javax.".length());
+            String artifact = TargetPlatformPolicy.wl14ApiArtifact(rule);
+            return artifact.isBlank()
+                    ? "keep " + rule + "; add an explicit javax API dependency"
+                    : "keep " + rule + "; declare " + artifact;
+        }
+        if (remediation.contains("jdeps suggested replacement:")) {
+            return safe(f.remediation()).substring(remediation.indexOf("jdeps suggested replacement:") + "jdeps suggested replacement:".length()).trim();
+        }
+        if (remediation.contains("jakarta") && usesJakartaNamespace(module)) return "jakarta.* equivalent";
+        if (remediation.contains("supported replacement")) return "supported replacement from rule guidance";
         return "";
     }
 
-    private static String recommendedCodeChange(SourceFinding f) {
+    private static String recommendedCodeChange(String module, SourceFinding f) {
         String remediation = safe(f.remediation()).trim();
         if (!remediation.isBlank()) return remediation;
 
         String rule = safe(f.rule());
         String category = safe(f.category()).toLowerCase();
         if (category.contains("java") || rule.startsWith("javax.")) {
-            return "Replace or remove the Java/API usage reported by the rule. Prefer the supported Java 21/Jakarta equivalent, then rebuild the generated JAR and re-run the scan.";
+            return usesJakartaNamespace(module)
+                    ? "Replace or remove the Java/API usage reported by the rule. Prefer the supported Java 21/Jakarta equivalent, then rebuild the generated JAR and re-run the scan."
+                    : "Replace or remove the Java/API usage reported by the rule with the supported Java 21 equivalent (keep javax.* EE APIs), then rebuild the generated JAR and re-run the scan.";
         }
         if (category.contains("library") || category.contains("spring") || category.contains("guava") || category.contains("guice")) {
             return "Upgrade the dependency to the target version and replace this deprecated/removed API with the rule's supported replacement.";
@@ -890,13 +1033,13 @@ public class SourceInventoryReportWriter {
         return actionText(f);
     }
 
-    private static String automationStartingPoint(SourceFinding f, ActionItem item) {
+    private static String automationStartingPoint(String module, SourceFinding f, ActionItem item) {
         StringBuilder sb = new StringBuilder();
         sb.append("Find rule/API: ").append(safe(f.rule())).append('\n');
         if (!item.files.isEmpty()) sb.append("Edit sample files: ").append(joinLimited(item.files, 3)).append('\n');
         if (!item.primaryFile().isBlank()) sb.append("Primary file: ").append(item.primaryFile()).append('\n');
         if (!safe(f.context()).isBlank()) sb.append("Match context: ").append(f.context()).append('\n');
-        sb.append("Recipe candidate: ").append(recipeCandidate(f)).append('\n');
+        sb.append("Recipe candidate: ").append(recipeCandidate(module, f)).append('\n');
         sb.append("Validation: rebuild component, confirm generated artifacts in Generated JARs, then re-run both mode.");
         return sb.toString();
     }
@@ -909,6 +1052,25 @@ public class SourceInventoryReportWriter {
 
         SourceScanResult result = sourceResultForComponent(component, results);
         String trunkPath = result == null ? "" : checkoutPath(result.trunkCheckout());
+        String evidence = joinLimited(item.trunkEvidence, 3).replace('\n', ' ');
+        String status = item.trunkStatus();
+        if (item.notRequired()) {
+            return "No change needed: trunk is validated on the target and has the same code. " + evidence;
+        }
+        if (TrunkComparator.SAME.equals(status)) {
+            return "Trunk has the same code, so trunk has not fixed this either. " + evidence
+                    + " If trunk already runs on the target, set Trunk Validated = Yes in the inventory (or --trunk-validated=true) and re-run.";
+        }
+        if (TrunkComparator.FIXED.equals(status)) {
+            return "Fixed in trunk: " + evidence + (trunkPath.isBlank() ? "" : " Trunk workspace: " + trunkPath + ".")
+                    + " Port the trunk change into the fixable source, then rebuild and re-run.";
+        }
+        if (TrunkComparator.REMOVED.equals(status)) {
+            return "Trunk restructured this code: " + evidence + " Review how trunk replaced it before editing the fixable source.";
+        }
+        if (status.startsWith("TRUNK_PARTIAL")) {
+            return "Mixed trunk result (" + status + "). Check each file: " + joinLimited(item.trunkEvidence, 6).replace('\n', ' ');
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("Compare fixable source with trunk before editing. ");
         if (!trunkPath.isBlank()) {
@@ -962,18 +1124,25 @@ public class SourceInventoryReportWriter {
                 .filter(item -> displayComponent(item.first).equals(component))
                 .toList();
         long confirmed = componentItems.stream().filter(ActionItem::hasConfirmedEvidence).count();
+        long notRequired = componentItems.stream().filter(ActionItem::notRequired).count();
         String trunk = sourceComponent == null ? "" : safe(sourceComponent.trunk());
         String heading = "▶  " + component + " — " + componentItems.size() + " action item(s), " + confirmed + " confirmed";
-        if (!trunk.isBlank()) heading += " — trunk/reference available";
+        if (notRequired > 0) heading += ", " + notRequired + " not required (same as validated trunk)";
+        if (!trunk.isBlank()) {
+            heading += sourceComponent.isTrunkValidated() ? " — validated trunk available" : " — trunk/reference available";
+        }
         return heading;
     }
 
-    private static String recipeCandidate(SourceFinding f) {
+    private static String recipeCandidate(String module, SourceFinding f) {
         String scanner = safe(f.scanner()).toLowerCase();
         String category = safe(f.category()).toLowerCase();
         String rule = safe(f.rule()).toLowerCase();
-        if (scanner.contains("java") || category.contains("java") || rule.startsWith("javax.")) {
-            return "OpenRewrite Java 21/Jakarta migration recipe or targeted import/member replacement.";
+        if (scanner.contains("java") || scanner.contains("jdk") || category.contains("java") || category.startsWith("jdk_")
+                || rule.startsWith("javax.")) {
+            return usesJakartaNamespace(module)
+                    ? "OpenRewrite Java 21/Jakarta migration recipe or targeted import/member replacement."
+                    : "OpenRewrite Java 21 recipe (no javax→jakarta rename for " + productName(module) + ") or targeted member replacement.";
         }
         if (category.contains("spring")) return "OpenRewrite Spring upgrade recipe plus targeted API replacement.";
         if (category.contains("weblogic") || rule.contains("weblogic")) return "Custom WebLogic API rewrite/adapter recipe.";
@@ -983,6 +1152,8 @@ public class SourceInventoryReportWriter {
 
     private static String noiseReason(SourceFinding f, ActionItem item) {
         String status = safe(f.validationStatus()).toUpperCase();
+        if (item.notRequired()) return "Same code is present in the validated trunk, which already runs on the target. Treat as not required (false positive for planning).";
+        if (item.hasCompilerEvidence()) return "Confirmed by javac --release 21; focus first.";
         if (item.hasConfirmedEvidence()) return "Confirmed by generated-JAR bytecode; focus first.";
         if ("CANDIDATE_SOURCE_ONLY".equals(status)) {
             return "Source-only candidate. Keep visible because component/source owns this code, but verify it is compiled and mapped in Generated JARs before fixing.";
@@ -1085,6 +1256,7 @@ public class SourceInventoryReportWriter {
     private static double estimateHours(List<SourceFinding> findings) {
         double total = 0.0;
         for (SourceFinding f : findings) {
+            if (isPlatformProvided(f) || isNotRequired(f)) continue;
             total += switch (severityBucket(f.severity())) {
                 case "CRITICAL" -> 2.5;
                 case "HIGH" -> 1.5;
@@ -1114,6 +1286,8 @@ public class SourceInventoryReportWriter {
         private final Set<String> validationStatuses = new LinkedHashSet<>();
         private final Set<String> matchedJars = new LinkedHashSet<>();
         private final Set<String> bytecodeClasses = new LinkedHashSet<>();
+        private final Set<String> trunkStatuses = new LinkedHashSet<>();
+        private final Set<String> trunkEvidence = new LinkedHashSet<>();
         private int count;
 
         private ActionItem(SourceFinding first) {
@@ -1122,6 +1296,8 @@ public class SourceInventoryReportWriter {
 
         private void add(SourceFinding f) {
             count++;
+            if (!safe(f.trunkStatus()).isBlank()) trunkStatuses.add(f.trunkStatus());
+            if (!safe(f.trunkEvidence()).isBlank()) trunkEvidence.add(f.trunkEvidence());
             if (!safe(f.file()).isBlank()) {
                 rawFiles.add(f.file());
                 files.add(f.file() + (f.line() > 0 ? ":" + f.line() : ""));
@@ -1133,8 +1309,20 @@ public class SourceInventoryReportWriter {
             splitValues(f.bytecodeClass(), bytecodeClasses);
         }
 
+        /** Every occurrence is identical in a trunk that already runs on the target platform. */
+        private boolean notRequired() {
+            return trunkStatuses.size() == 1 && trunkStatuses.contains(TrunkComparator.SAME_VALIDATED);
+        }
+
+        private String trunkStatus() {
+            if (trunkStatuses.isEmpty()) return "";
+            if (trunkStatuses.size() == 1) return trunkStatuses.iterator().next();
+            return "TRUNK_PARTIAL (" + String.join(", ", trunkStatuses) + ")";
+        }
+
         private int priorityRank() {
             int base = severityOrder(first.severity()) * 10;
+            if (notRequired()) return 90 + base;
             if (hasConfirmedEvidence()) return base;
             String status = safe(first.validationStatus()).toUpperCase();
             if ("CONFIRMED_BYTECODE_ONLY".equals(status)) return base + 1;
@@ -1150,6 +1338,10 @@ public class SourceInventoryReportWriter {
 
         private boolean hasConfirmedEvidence() {
             return validationStatuses.stream().anyMatch(s -> s != null && s.toUpperCase().startsWith("CONFIRMED"));
+        }
+
+        private boolean hasCompilerEvidence() {
+            return validationStatuses.stream().anyMatch(s -> s != null && s.toUpperCase().contains("COMPILER"));
         }
 
         private String confidenceLabel() {

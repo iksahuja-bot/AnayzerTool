@@ -1,5 +1,6 @@
 package effortanalyzer.source;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -7,6 +8,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -36,6 +38,10 @@ public final class SourceFindingCorrelator {
         Set<GeneratedArtifactScanner.BytecodeFinding> consumed = new LinkedHashSet<>();
 
         for (SourceFinding source : sources) {
+            if (CompileChecker.isCompilerConfirmed(source)) {
+                out.add(source.withOwnership(ownership(result.component(), List.of())));
+                continue;
+            }
             List<GeneratedArtifactScanner.BytecodeFinding> matches = bytecodeByRule.getOrDefault(key(source), List.of());
             List<GeneratedArtifactScanner.BytecodeFinding> classMatches = matches.stream()
                     .filter(b -> classMatches(source.sourceClass(), b.className()))
@@ -52,12 +58,29 @@ public final class SourceFindingCorrelator {
             }
         }
 
+        SourceFileIndex checkoutIndex = null;
         for (GeneratedArtifactScanner.BytecodeFinding b : bytecode) {
             if (consumed.contains(b)) continue;
-            out.add(bytecodeOnly(result.component(), b));
+            if (checkoutIndex == null) {
+                checkoutIndex = SourceFileIndex.of(result.checkout() == null ? null : result.checkout().checkoutPath());
+            }
+            out.add(mapToSource(bytecodeOnly(result.component(), b), b, checkoutIndex));
         }
 
-        return out;
+        return TrunkComparator.annotate(result, out);
+    }
+
+    /** Points a bytecode-only finding at the {@code .java} file that declares the class, with a line hint. */
+    private static SourceFinding mapToSource(SourceFinding f, GeneratedArtifactScanner.BytecodeFinding b, SourceFileIndex index) {
+        Optional<Path> source = index.findClass(b.className());
+        if (source.isEmpty()) return f;
+        String relative = index.relative(source.get());
+        int line = SourceFileIndex.findLine(source.get(), b.rule());
+        return new SourceFinding(f.component(), f.repository(), f.repositoryType(), f.scanner(), f.category(), f.severity(),
+                relative, line, f.rule(), f.description(), f.remediation(),
+                f.context() + " (mapped to " + relative + (line > 0 ? ":" + line : "") + ")",
+                f.detectionSource(), f.validationStatus(), f.confidence(), f.matchedInSource(), f.matchedInBytecode(),
+                f.matchedJars(), "BYTECODE_ONLY_MAPPED_TO_SOURCE", f.sourceClass(), f.bytecodeClass(), f.ownership());
     }
 
     private static SourceFinding sourceOnly(SourceFinding f, SourceComponent component) {

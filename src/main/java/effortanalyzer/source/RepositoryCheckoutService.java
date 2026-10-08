@@ -47,7 +47,7 @@ public class RepositoryCheckoutService {
     private CheckoutResult checkout(SourceComponent component, String repository, RepositoryType type, String branch, String revision, String targetSuffix) {
         SourceComponent checkoutComponent = new SourceComponent(component.component(), repository, component.trunk(),
                 type, branch, revision, component.path(), component.enabled(), component.rowNumber(),
-                component.generatedJars(), component.applicationPackages(), component.ownership());
+                component.generatedJars(), component.applicationPackages(), component.ownership(), component.trunkValidated());
         Path target = workspace.resolve(safeName(component.displayName()) + targetSuffix + "-r" + component.rowNumber());
         try {
             Files.createDirectories(workspace);
