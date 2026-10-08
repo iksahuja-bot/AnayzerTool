@@ -275,8 +275,8 @@ public class AppConfig {
         failOnCheckoutError = Boolean.parseBoolean(get("source.fail.on.checkout.error", "false"));
         promptCredentials = Boolean.parseBoolean(get("source.prompt.credentials", "false"));
         jdkToolsEnabled = Boolean.parseBoolean(get("source.jdk.tools", "true"));
-        trunkValidated = Boolean.parseBoolean(get("source.trunk.validated", "false"));
-        compileCheck = Boolean.parseBoolean(get("source.compile.check", "false"));
+        trunkValidated = Boolean.parseBoolean(get("source.trunk.validated", "true"));
+        compileCheck = Boolean.parseBoolean(get("source.compile.check", "true"));
         compileClasspath = get("source.compile.classpath", "");
         mavenSettings = get("source.maven.settings", "");
 
@@ -442,8 +442,8 @@ public class AppConfig {
         System.out.println("  --prompt-credentials=true|false  Prompt once for Git/SVN username/password (default: false)");
         System.out.println("  --jdk-tools=true|false   Run jdeprscan/jdeps + JDK 21 API check on Generated JARs (default: true)");
         System.out.println("  --trunk-validated=true|false  Trunk already runs on the target; trunk-same findings become");
-        System.out.println("                           NOT REQUIRED (default: false; ComponentList 'Trunk Validated' column wins)");
-        System.out.println("  --compile-check=true|false  Compile each checkout with javac --release 21 (default: false)");
+        System.out.println("                           NOT REQUIRED (default: true; ComponentList 'Trunk Validated' column wins)");
+        System.out.println("  --compile-check=true|false  Compile each checkout with javac --release 21 (default: true)");
         System.out.println("  --compile-classpath=<p;p>  Extra jars/dirs for --compile-check (';' or path separator)");
         System.out.println("  --maven-settings=<file>  settings.xml for Maven classpath resolution in --compile-check");
         System.out.println();

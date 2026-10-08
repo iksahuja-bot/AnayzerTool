@@ -214,13 +214,15 @@ class AppConfigTest {
     @Test
     void trunkAndCompileCheckOptionsAreParsed() {
         AppConfig defaults = AppConfig.parse(new String[]{"--module=wl14"});
-        assertFalse(defaults.isTrunkValidated(), "trunk is not assumed validated");
-        assertFalse(defaults.isCompileCheck(), "compile check is opt-in");
+        assertTrue(defaults.isTrunkValidated(), "trunk is assumed validated on the target");
+        assertTrue(defaults.isCompileCheck(), "compile check is on by default");
 
-        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl14", "--trunk-validated=true", "--compile-check=true",
+        AppConfig off = AppConfig.parse(new String[]{"--module=wl14", "--trunk-validated=false", "--compile-check=false"});
+        assertFalse(off.isTrunkValidated());
+        assertFalse(off.isCompileCheck());
+
+        AppConfig cfg = AppConfig.parse(new String[]{"--module=wl14",
                 "--compile-classpath=C:/libs;C:/wl/api.jar", "--maven-settings=settings-local.xml"});
-        assertTrue(cfg.isTrunkValidated());
-        assertTrue(cfg.isCompileCheck());
         assertEquals("C:/libs;C:/wl/api.jar", cfg.getCompileClasspath());
         assertEquals("settings-local.xml", cfg.getMavenSettings());
     }

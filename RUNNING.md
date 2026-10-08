@@ -963,9 +963,9 @@ Important behavior: source-only findings are retained as candidates. Bytecode ev
 
 The tools are taken from the running JVM's `java.home/bin`. On a JRE without them, only the built-in check runs. A JDK tool finding that duplicates a pattern-rule bytecode finding for the same class is dropped, so the rule finding keeps its source correlation. JDK tool findings appear as `CONFIRMED_BYTECODE_ONLY`. When the checkout contains the `.java` file that declares the class, `File` and `Line` point at it (reason code `BYTECODE_ONLY_MAPPED_TO_SOURCE`). Use `--jdk-tools=false` to turn this off.
 
-#### Compile check (`--compile-check=true`)
+#### Compile check (`--compile-check`, on by default)
 
-The compile check compiles each checkout's main sources in-process with `javac --release 21 -Xlint:deprecation,removal`. Test directories (`src/test`, `test`, `unit-test`, …) are skipped, and the `.java` files are not modified; class output goes to a temporary folder that is deleted afterwards. Diagnostics map to the same categories as the JDK Tools scanner, under scanner `Compile Check`:
+The compile check is on by default. Turn it off with `--compile-check=false`. It compiles each checkout's main sources in-process with `javac --release 21 -Xlint:deprecation,removal`. Test directories (`src/test`, `test`, `unit-test`, …) are skipped, and the `.java` files are not modified; class output goes to a temporary folder that is deleted afterwards. Diagnostics map to the same categories as the JDK Tools scanner, under scanner `Compile Check`:
 
 | javac diagnostic | Category |
 | ---------------- | -------- |
@@ -998,7 +998,7 @@ When a row has a `Trunk` value, the trunk checkout is scanned with the same rule
 
 Java classes are matched by their `package` declaration, so `src/com/x/A.java` in the fixable checkout matches `module/src/main/java/com/x/A.java` in trunk. Pattern findings compare with trunk's scan results; compiler, JDK tool, and bytecode findings compare with the API text in the trunk class.
 
-Add a `Trunk Validated` column (`Yes` / `No`) to the inventory when trunk already runs on the target platform, for example trunk is on Java 21 and validated on WebLogic 14.1.2. `--trunk-validated=true` sets the default for rows that leave the column blank.
+Add a `Trunk Validated` column (`Yes` / `No`) to the inventory when trunk already runs on the target platform, for example trunk is on Java 21 and validated on WebLogic 14.1.2. Rows that leave the column blank use `--trunk-validated`, which defaults to `true`. Set `No` on a row, or pass `--trunk-validated=false`, when trunk is not yet validated on the target.
 
 Use the `🎯 Action Items` sheet as the focused working view. It groups duplicate raw findings by component/rule, ranks confirmed bytecode evidence ahead of source-only candidates, keeps components that only appear in source findings visible, and adds a `Recommended Code Change` plus `Automation Starting Point` column for future assisted fixes. Treat `Source Findings` as raw evidence for drill-down rather than the primary backlog.
 
@@ -1082,8 +1082,8 @@ Useful source-inventory options:
 | `--fail-on-checkout-error=true|false` | `false` | Stop immediately on first checkout error instead of writing the error sheet |
 | `--prompt-credentials=true|false` | `false` | Prompt once for username/password and pass them to Git/SVN commands |
 | `--jdk-tools=true|false` | `true` | Run `jdeprscan --release 21`, `jdeps --jdk-internals`, and the built-in JDK 21 API check on each row's `Generated JARs` (modules with Java 21 rules only) |
-| `--trunk-validated=true|false` | `false` | Default `Trunk Validated` value for inventory rows that leave it blank. Trunk-same findings of validated rows become NOT REQUIRED |
-| `--compile-check=true|false` | `false` | Compile each checkout's main sources with `javac --release 21` and report compiler-confirmed Java 21 findings (modules with Java 21 rules only) |
+| `--trunk-validated=true|false` | `true` | Default `Trunk Validated` value for inventory rows that leave it blank. Trunk-same findings of validated rows become NOT REQUIRED |
+| `--compile-check=true|false` | `true` | Compile each checkout's main sources with `javac --release 21` and report compiler-confirmed Java 21 findings (modules with Java 21 rules only) |
 | `--compile-classpath=<p;p>` | _(none)_ | Extra JARs or JAR folders for `--compile-check`, separated by `;` or the OS path separator |
 | `--maven-settings=<file>` | _(none)_ | `settings.xml` passed to `mvn dependency:build-classpath` when `--compile-check` finds a `pom.xml` |
 

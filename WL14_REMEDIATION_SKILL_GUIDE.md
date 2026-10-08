@@ -180,11 +180,11 @@ The `Identical files x/y` detail shows how many candidate files are byte-identic
 
 ### Workbooks generated with Trunk Validated / compile check
 
-If trunk already runs on WebLogic 14.1.2 with Java 21, generate the workbook with trunk marked as validated. Use a `Trunk Validated = Yes` column in `ComponentList.xlsx`, or `--trunk-validated=true`. Add `--compile-check=true` for compiler-confirmed evidence:
+By default EffortAnalyzer treats trunk as already validated on WebLogic 14.1.2 with Java 21 (`--trunk-validated=true`). It also compiles each checkout for compiler-confirmed evidence (`--compile-check=true`). Set `Trunk Validated = No` in `ComponentList.xlsx` for a trunk that is not validated yet:
 
 ```powershell
 java -jar EffortAnalyzer-2.0.0.jar --module=wl14 --mode=both --source-inventory=ComponentList.xlsx `
-  --trunk-validated=true --compile-check=true --output=WL14-Combined.xlsx
+  --maven-settings=settings-local.xml --output=WL14-Combined.xlsx
 ```
 
 The workbook then decides the trunk-same question itself. Items that are identical in the validated trunk are marked **NOT REQUIRED** (`trunk_status = TRUNK_SAME_VALIDATED`). The skill reports them as no change needed and does not patch them. `TRUNK_FIXED` items name the trunk file to port from in `trunk_evidence`.

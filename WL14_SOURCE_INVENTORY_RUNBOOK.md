@@ -543,7 +543,7 @@ In `both` mode, findings with scanner `JDK Tools` come from `jdeprscan --release
 
 ### Trunk Validated and the compile check
 
-When trunk already runs on WebLogic 14.1.2 with Java 21, add a `Trunk Validated` column to `ComponentList.xlsx` and set it to `Yes` (or pass `--trunk-validated=true`). Each finding then carries a `Trunk Status`:
+Both features are on by default. Trunk is treated as already running on WebLogic 14.1.2 with Java 21 (`--trunk-validated=true`). For a component whose trunk is not validated yet, set its `Trunk Validated` column in `ComponentList.xlsx` to `No`, or pass `--trunk-validated=false` for the whole run. Each finding carries a `Trunk Status`:
 
 | Trunk Status | Recommended Action |
 |--------------|--------------------|
@@ -552,11 +552,11 @@ When trunk already runs on WebLogic 14.1.2 with Java 21, add a `Trunk Validated`
 | `TRUNK_REMOVED` | Trunk restructured the code. Review trunk before editing. |
 | `TRUNK_SAME` | Trunk has the same code but is not marked validated. Confirm it with the trunk owner. |
 
-For ground-truth Java 21 evidence without pre-built JARs, add `--compile-check=true`. This compiles each checkout with `javac --release 21`. Findings with validation `CONFIRMED_COMPILER` or `CONFIRMED_SOURCE_AND_COMPILER` are the compiler's own verdict. For WL14, missing `javax.*` server APIs show up as `BUILD_CLASSPATH` (INFO) and are not code changes. Pass `--maven-settings=settings-local.xml` for Maven checkouts, or `--compile-classpath=<WebLogic API jar;lib folder>` for Ant checkouts, so the `Compile Check` status reaches `CLEAN` / `JAVA21_FINDINGS` rather than `INCOMPLETE_CLASSPATH`.
+For ground-truth Java 21 evidence without pre-built JARs, the compile check (`--compile-check`, default `true`; `--compile-check=false` skips it) compiles each checkout with `javac --release 21`. Findings with validation `CONFIRMED_COMPILER` or `CONFIRMED_SOURCE_AND_COMPILER` are the compiler's own verdict. For WL14, missing `javax.*` server APIs show up as `BUILD_CLASSPATH` (INFO) and are not code changes. Pass `--maven-settings=settings-local.xml` for Maven checkouts, or `--compile-classpath=<WebLogic API jar;lib folder>` for Ant checkouts, so the `Compile Check` status reaches `CLEAN` / `JAVA21_FINDINGS` rather than `INCOMPLETE_CLASSPATH`.
 
 ```powershell
 java -jar EffortAnalyzer-2.0.0.jar --module=wl14 --mode=both --source-inventory=ComponentList.xlsx `
-  --trunk-validated=true --compile-check=true --maven-settings=settings-local.xml --output=WL14-Combined.xlsx
+  --maven-settings=settings-local.xml --output=WL14-Combined.xlsx
 ```
 
 ---
